@@ -26,6 +26,7 @@ go.work.sum
 
 # env file
 .env
+etc/config_local.yaml
 
 # Editor/IDE
 # .idea/

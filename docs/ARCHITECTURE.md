@@ -29,7 +29,7 @@ source of study is the `mysurl1` go-zero short-link service; the goal was to
 |---------|------|-----------------|
 | `rest.Server`, `rest.Route`, `WithMiddlewares` | routing + server lifecycle | `gin.Engine` / groups |
 | `config` embeds `rest.RestConf` | server/log/trace config | custom `ServerConf` + `http.Server` |
-| `conf.MustLoad` | YAML + tag defaults | `spf13/viper` (per-env `config_<env>.yaml` + `SetDefault` + `APP_*` env + opt-in watch) |
+| `conf.MustLoad` | YAML + tag defaults | `spf13/viper` (per-env `config_<env>.yaml` + `SetDefault` + env vars + opt-in watch) |
 | `httpx.Parse` / `httpx.WriteJsonCtx` | bind / write | `c.ShouldBind*` / `c.JSON` |
 | `sqlx.SqlConn` | data access | `database/sql` / `sqlx` / `gorm` |
 | `logx` | logging | `log/slog` |

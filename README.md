@@ -4,8 +4,9 @@ A small, **reusable gin engineering skeleton** distilled from the layered
 architecture of the `mysurl1` go-zero service. It is *not* the short-link
 business — it is a clean starting point for new gin projects.
 
-It boots with **zero external dependencies** (in-memory demo DAO), so you can
-`go run` it immediately and replace pieces as you grow.
+The program entrypoint is [`main.go`](./main.go). It boots with **zero external
+dependencies** (in-memory demo DAO), so you can `go run` it immediately and
+replace pieces as you grow.
 
 ## Layout
 
@@ -46,15 +47,16 @@ Every handler is the same four steps: **bind → call logic → on error `respon
 
 ```bash
 # defaults to the dev environment -> etc/config_dev.yaml
-go run ./cmd/server
+go run .
 
 # pick an environment -> loads etc/config_<env>.yaml
-go run ./cmd/server -env prod
-APP_ENV=test go run ./cmd/server
+go run . -env prod
+ENV=test go run .
 
 # build + run, or point at an explicit file (overrides -env)
-go build -o bin/server ./cmd/server && ./bin/server -env prod
-go run ./cmd/server -f etc/config_dev.yaml
+go build -o bin/server .
+./bin/server -env prod
+go run . -f etc/config_dev.yaml
 ```
 
 The dev config listens on `0.0.0.0:8080` (see `etc/config_dev.yaml`).
@@ -62,28 +64,28 @@ The dev config listens on `0.0.0.0:8080` (see `etc/config_dev.yaml`).
 ### Environment selection
 
 The active environment selects the file `etc/config_<env>.yaml`. Resolution
-precedence is **`-f` (explicit file) > `-env` flag > `APP_ENV` > `dev`**:
+precedence is **`-f` (explicit file) > `-env` flag > `ENV` > `dev`**:
 
 | flags / env             | file loaded                 |
 |-------------------------|-----------------------------|
 | (none)                  | `etc/config_dev.yaml`       |
 | `-env prod`             | `etc/config_prod.yaml`      |
-| `APP_ENV=test`          | `etc/config_test.yaml`      |
+| `ENV=test`              | `etc/config_test.yaml`      |
 | `-c /etc/app -env prod` | `/etc/app/config_prod.yaml` |
 | `-f path/to.yaml`       | `path/to.yaml`              |
 
 ### Config precedence (viper)
 
 Configuration loads as **defaults < YAML file < environment**. Any key can be
-overridden by an `APP_`-prefixed env var with `.` replaced by `_` (so
-`server.port` -> `APP_SERVER_PORT`):
+overridden by an env var with `.` replaced by `_` (so `server.port` ->
+`SERVER_PORT`):
 
 ```bash
 # override server.port without editing the file
-APP_SERVER_PORT=9090 go run ./cmd/server -env dev
+SERVER_PORT=9090 go run . -env dev
 
 # override auth.jwtSecret and log.level on top of the prod file
-APP_AUTH_JWTSECRET='real-secret' APP_LOG_LEVEL=debug ./bin/server -env prod
+AUTH_JWTSECRET='real-secret' LOG_LEVEL=debug ./bin/server -env prod
 ```
 
 Opt-in hot-reload is available via `config.Watch(path, onChange)`.
@@ -142,7 +144,7 @@ grep -rl 'gin-scaffold/' . | xargs sed -i 's#gin-scaffold/#github.com/you/yourap
 ## Capabilities included
 
 - `go run`-able gin server with graceful shutdown (SIGINT/SIGTERM)
-- viper config: YAML file + defaults + `APP_*` env overrides + `-f` flag + opt-in hot-reload (`config.Watch`)
+- viper config: YAML file + defaults + env overrides + `-f` flag + opt-in hot-reload (`config.Watch`)
 - ServiceContext dependency injection
 - Unified response envelope + typed `AppError` → HTTP status mapping
 - JWT issue/verify + auth middleware (claims on context)

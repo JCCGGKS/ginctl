@@ -20,7 +20,7 @@ import (
 
 func main() {
 	var (
-		env      = flag.String("env", envOrDefault("APP_ENV", config.DefaultEnv), "runtime environment: dev|test|prod (also via APP_ENV)")
+		env      = flag.String("env", envOrDefault("ENV", config.DefaultEnv), "runtime environment: dev|test|prod (also via ENV)")
 		confDir  = flag.String("c", "etc", "directory holding config_<env>.yaml files")
 		confFile = flag.String("f", "", "explicit config file; when set it overrides -env/-c")
 	)

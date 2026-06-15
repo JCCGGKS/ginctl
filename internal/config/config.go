@@ -2,7 +2,7 @@
 //
 // Loading is handled by spf13/viper, which gives layered configuration with a
 // clear precedence: defaults < config file < environment variables. Env keys
-// use the APP_ prefix (e.g. APP_SERVER_PORT=9090 overrides server.port).
+// have no prefix (e.g. SERVER_PORT=9090 overrides server.port).
 // Optional hot-reload is available via Watch. The Load/MustLoad API is
 // unchanged, so the rest of the app does not know viper sits underneath.
 package config
@@ -16,10 +16,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
 )
-
-// envPrefix namespaces environment overrides so they never collide with
-// unrelated host env vars.
-const envPrefix = "APP"
 
 // DefaultEnv is the environment assumed when the caller supplies none.
 const DefaultEnv = "dev"
@@ -70,7 +66,7 @@ func MustLoad(path string) Config {
 }
 
 // Load applies defaults, reads the YAML file at path, then overlays any
-// matching APP_* environment variables.
+// matching environment variables.
 func Load(path string) (Config, error) {
 	v, err := newViper(path)
 	if err != nil {
@@ -107,8 +103,7 @@ func newViper(path string) (*viper.Viper, error) {
 	v.SetConfigFile(path)
 	v.SetConfigType("yaml")
 
-	// defaults < file < env. The replacer maps server.port -> APP_SERVER_PORT.
-	v.SetEnvPrefix(envPrefix)
+	// defaults < file < env. The replacer maps server.port -> SERVER_PORT.
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
