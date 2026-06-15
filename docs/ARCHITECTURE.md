@@ -63,7 +63,7 @@ centralized in svc · observability (request id + structured access log + panic
 guard) · externalized config with defaults + env overrides · graceful shutdown · runs with zero
 external dependencies.
 
-## 6. Request flow (`GET /api/v1/resources`)
+## 6. Request flow (`GET /healthz`)
 
 ```
 RequestID -> AccessLog -> Recovery -> Auth(group) -> Handler.bind
@@ -75,7 +75,7 @@ RequestID -> AccessLog -> Recovery -> Auth(group) -> Handler.bind
 
 ## 7. Roadmap
 
-- **M0 (done):** runnable skeleton, health + login + protected list, no deps.
+- **M0 (done):** runnable skeleton, health only, no deps.
 - **M1:** real MySQL DAO, user table, bcrypt login.
 - **M2:** refresh-token issue/rotate/logout; DB-backed audit sink.
 - **M3:** tracing/metrics, validation error i18n; config hot-reload done (opt-in `config.Watch`).

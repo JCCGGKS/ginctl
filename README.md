@@ -90,27 +90,11 @@ AUTH_JWTSECRET='real-secret' LOG_LEVEL=debug ./bin/server -env prod
 
 Opt-in hot-reload is available via `config.Watch(path, onChange)`.
 
-## Try the endpoints
+## Try the endpoint
 
 ```bash
 # health (plain body, intentionally outside the unified envelope)
 curl -s http://127.0.0.1:8080/healthz
-
-# protected route without a token -> 401 unified error
-curl -s http://127.0.0.1:8080/api/v1/resources
-
-# login (demo creds admin/admin123) -> returns an access_token
-curl -s -X POST http://127.0.0.1:8080/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin123"}'
-
-# call a protected, paginated, filterable endpoint
-TOKEN="<access_token from login>"
-curl -s "http://127.0.0.1:8080/api/v1/resources?page=1&page_size=3&keyword=resource-1" \
-  -H "Authorization: Bearer $TOKEN"
-
-# single resource (404 demo: id 999)
-curl -s http://127.0.0.1:8080/api/v1/resources/2 -H "Authorization: Bearer $TOKEN"
 ```
 
 Every JSON response shares the same shape:
@@ -121,7 +105,7 @@ Every JSON response shares the same shape:
 
 ## How to extend
 
-**Add an endpoint** (e.g. `POST /api/v1/resources`):
+**Add an endpoint** (e.g. `GET /api/v1/ping`):
 1. `schema/resource.go`: add the request/response DTOs.
 2. `logic/resource.go`: add a method that validates + calls the DAO.
 3. `handler/resource.go`: add a 4-step handler.
@@ -147,12 +131,12 @@ grep -rl 'gin-scaffold/' . | xargs sed -i 's#gin-scaffold/#github.com/you/yourap
 - viper config: YAML file + defaults + env overrides + `-f` flag + opt-in hot-reload (`config.Watch`)
 - ServiceContext dependency injection
 - Unified response envelope + typed `AppError` → HTTP status mapping
-- JWT issue/verify + auth middleware (claims on context)
+- JWT issue/verify + auth middleware (available for future protected routes)
 - Global middleware: request id, structured access log (`log/slog`), panic recovery
 - Operation-log middleware (reads outcome from context — no fragile body capture)
 - Pagination normalization
 - Interface-based DAO with an in-memory demo
-- Demo endpoints: health, login, resource list/get
+- Demo endpoint: health
 
 ## Intentionally NOT included (to become a real scaffold)
 

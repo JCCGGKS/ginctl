@@ -25,28 +25,8 @@ func New(svcCtx *svc.ServiceContext) *gin.Engine {
 		middleware.Recovery(),
 	)
 
-	authHandler := handler.NewAuthHandler(svcCtx)
-	resourceHandler := handler.NewResourceHandler(svcCtx)
-
 	// Liveness probe — intentionally outside the unified envelope.
 	engine.GET("/healthz", handler.Health)
-
-	api := engine.Group("/api/v1")
-	{
-		// Public route; also demonstrates the operation-log middleware.
-		api.POST("/auth/login",
-			middleware.OperationLog("login", nil),
-			authHandler.Login,
-		)
-
-		// Protected group: everything here requires a valid JWT.
-		authed := api.Group("")
-		authed.Use(middleware.Auth(svcCtx.TokenManager))
-		{
-			authed.GET("/resources", resourceHandler.List)
-			authed.GET("/resources/:id", resourceHandler.Get)
-		}
-	}
 
 	return engine
 }
