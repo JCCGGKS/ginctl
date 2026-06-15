@@ -1,3 +1,5 @@
+// Package handler adapts HTTP to the logic layer: bind input, call logic,
+// write a unified response. No business branching lives here.
 package handler
 
 import (
@@ -9,16 +11,17 @@ import (
 	"gin-scaffold/pkg/response"
 )
 
+// AuthHandler holds shared dependencies for auth endpoints.
 type AuthHandler struct {
 	svcCtx *svc.ServiceContext
 }
 
+// NewAuthHandler builds an auth handler set.
 func NewAuthHandler(svcCtx *svc.ServiceContext) *AuthHandler {
 	return &AuthHandler{svcCtx: svcCtx}
 }
 
-// Login: bind -> logic -> unified response. The four-step shape is identical
-// for every handler (compare reference loginhandler.go).
+// Login follows the standard flow: bind -> logic -> unified response.
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req schema.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

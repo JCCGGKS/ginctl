@@ -1,8 +1,11 @@
 package router
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
+	"gin-scaffold/internal/handler"
 	"gin-scaffold/internal/svc"
 )
 
@@ -36,4 +39,33 @@ func registerCustomRoutes(engine *gin.Engine, svcCtx *svc.ServiceContext) {
 			rg.Handle(route.Method, route.Path, route.Handler(svcCtx))
 		}
 	}
+}
+
+// 为避免循环依赖，将init放置在此
+func init() {
+	RegisterCustomRoutes(CustomRouteGroup{
+		Prefix: "", // root: liveness probe sits at /healthz
+		Routes: []CustomRoute{
+			{
+				Method: http.MethodGet,
+				Path:   "/healthz",
+				Handler: func(_ *svc.ServiceContext) gin.HandlerFunc {
+					return handler.Health
+				},
+			},
+		},
+	})
+
+	RegisterCustomRoutes(CustomRouteGroup{
+		Prefix: "/api/v1",
+		Routes: []CustomRoute{
+			{
+				Method: http.MethodPost,
+				Path:   "/login",
+				Handler: func(svcCtx *svc.ServiceContext) gin.HandlerFunc {
+					return handler.NewAuthHandler(svcCtx).Login
+				},
+			},
+		},
+	})
 }

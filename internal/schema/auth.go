@@ -8,12 +8,14 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+// LoginResponse is the login response payload.
 type LoginResponse struct {
 	AccessToken     string  `json:"access_token"`
 	AccessExpiresAt int64   `json:"access_expires_at"`
 	User            UserDTO `json:"user"`
 }
 
+// UserDTO is the API-facing user payload.
 type UserDTO struct {
 	ID       uint64 `json:"id"`
 	Username string `json:"username"`
