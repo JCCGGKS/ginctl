@@ -1,0 +1,17 @@
+# Production environment.
+# Do NOT commit real secrets here; inject them via APP_* env vars
+# (e.g. APP_AUTH_JWTSECRET=...) which override file values.
+server:
+  host: 0.0.0.0
+  port: 8080
+  mode: release               # gin mode: debug | release | test
+  readTimeoutSeconds: 15
+  writeTimeoutSeconds: 15
+  shutdownTimeoutSeconds: 10
+
+auth:
+  jwtSecret: ""               # set via APP_AUTH_JWTSECRET
+  accessExpireSeconds: 900
+
+log:
+  level: info
