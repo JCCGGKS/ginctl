@@ -6,7 +6,6 @@ package router
 import (
 	"github.com/gin-gonic/gin"
 
-	"gin-scaffold/internal/handler"
 	"gin-scaffold/internal/middleware"
 	"gin-scaffold/internal/svc"
 )
@@ -25,8 +24,7 @@ func New(svcCtx *svc.ServiceContext) *gin.Engine {
 		middleware.Recovery(),
 	)
 
-	// Liveness probe — intentionally outside the unified envelope.
-	engine.GET("/healthz", handler.Health)
+	registerCustomRoutes(engine, svcCtx)
 
 	return engine
 }
