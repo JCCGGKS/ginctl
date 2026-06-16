@@ -18,7 +18,7 @@ source of study is the `mysurl1` go-zero short-link service; the goal was to
 - **Unified response + typed error** (`HTTPError` mapped via `errors.As`).
 - **ServiceContext as a DI container** (constructed once).
 - **Auth claims passed via context**, injected by middleware, read in logic.
-- **Cross-cutting via middleware**: JWT auth, operation log.
+- **Cross-cutting via middleware**: JWT auth.
 - **Strategy + registry** for pluggable short-code generators.
 - **Background worker with interface segregation** (`VisitCountCache`).
 - **Graceful degradation** when DB/Redis/Bloom are unavailable.
@@ -44,16 +44,14 @@ sqlx and logx are truly go-zero-bound.
 
 Layering & boundaries · unified response + typed error · logic constructor
 pattern · ServiceContext DI · JWT auth + claims-in-context · pagination
-normalization · operation-log middleware (de-fragilized) · viper config (per-env file + defaults + env overrides) ·
+normalization · viper config (per-env file + defaults + env overrides) ·
 graceful shutdown.
 
 ## 4. Deliberately left in the business project
 
 Short-code strategies (snowflake/base62/redis-incr/auto-increment) · URL
 normalize/hash · Bloom reuse check · singleflight origin-merge · visit-count
-Redis aggregation + async flush · the concrete oplog route→action table · the
-`ExtData` "parasitic response body" coupling (replaced here by explicit context
-values) · concrete SQL/schema.
+Redis aggregation + async flush · concrete SQL/schema.
 
 ## 5. Design principles of the skeleton
 
@@ -70,13 +68,12 @@ RequestID -> AccessLog -> Recovery -> Auth(group) -> Handler.bind
   -> Logic.List: pagination.Normalize -> ResourceDAO.Count/List -> assemble DTO
   -> response.OK (writes envelope + stores biz outcome on context)
 <- AccessLog logs status + request_id
-(OperationLog, when attached, reads biz code + claims from context after Next)
 ```
 
 ## 7. Roadmap
 
 - **M0 (done):** runnable skeleton, health only, no deps.
 - **M1:** real MySQL DAO, user table, bcrypt login.
-- **M2:** refresh-token issue/rotate/logout; DB-backed audit sink.
+- **M2:** refresh-token issue/rotate/logout.
 - **M3:** tracing/metrics, validation error i18n; config hot-reload done (opt-in `config.Watch`).
 - **M4:** turn it into a code generator / `gonew` template.

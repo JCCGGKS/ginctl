@@ -17,7 +17,7 @@ internal/
   config/                 config structs + Load() + defaults (viper: defaults<file<env)
   svc/                    ServiceContext: dependency-injection container
   router/                 routes + per-group middleware wiring (hand-written routes.go)
-  middleware/             requestid, accesslog, recovery, auth (JWT), oplog (audit)
+  middleware/             requestid, accesslog, recovery, auth (JWT)
   handler/                health, auth, resource  (thin HTTP adapters)
   logic/                  auth, resource          (business orchestration)
   dao/                    resource DAO interface + in-memory impl
@@ -116,9 +116,6 @@ Every JSON response shares the same shape:
   (database/sql, jmoiron/sqlx, or gorm) and construct it in `svc`.
 - Logic and handler do not change — that is the point of the interface.
 
-**Persist audit logs:** implement `middleware.OperationSink` against a DB and
-pass it into `middleware.OperationLog("action", sink)`.
-
 **Rename the module** for your project:
 ```bash
 go mod edit -module github.com/you/yourapp
@@ -133,7 +130,6 @@ grep -rl 'gin-scaffold/' . | xargs sed -i 's#gin-scaffold/#github.com/you/yourap
 - Unified response envelope + typed `AppError` → HTTP status mapping
 - JWT issue/verify + auth middleware (available for future protected routes)
 - Global middleware: request id, structured access log (`log/slog`), panic recovery
-- Operation-log middleware (reads outcome from context — no fragile body capture)
 - Pagination normalization
 - Interface-based DAO with an in-memory demo
 - Demo endpoint: health

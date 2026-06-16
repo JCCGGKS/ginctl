@@ -4,13 +4,14 @@ package token
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
 )
 
 // Claims is the JWT payload. Extend with roles/tenant/scope as needed.
-type Claims struct {
+type AuthClaims struct {
 	UserID   uint64 `json:"uid"`
 	Username string `json:"username"`
 	jwt.RegisteredClaims
@@ -37,7 +38,7 @@ func (m *Manager) Issue(userID uint64, username string) (string, time.Time, erro
 	}
 
 	expiresAt := time.Now().Add(m.accessTTL)
-	claims := Claims{
+	claims := AuthClaims{
 		UserID:   userID,
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -54,13 +55,12 @@ func (m *Manager) Issue(userID uint64, username string) (string, time.Time, erro
 	return signed, expiresAt, nil
 }
 
-// Parse validates a token string and returns its claims.
-func (m *Manager) Parse(tokenString string) (*Claims, error) {
+// ParseInto validates a token string and decodes it into the provided claims.
+func (m *Manager) ParseInto(tokenString string, claims jwt.Claims) error {
 	if len(m.secret) == 0 {
-		return nil, errors.New("jwt secret is not configured")
+		return errors.New("jwt secret is not configured")
 	}
 
-	claims := &Claims{}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
 		if t.Method != jwt.SigningMethodHS256 {
 			return nil, errors.New("unexpected signing method")
@@ -68,10 +68,21 @@ func (m *Manager) Parse(tokenString string) (*Claims, error) {
 		return m.secret, nil
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !token.Valid {
-		return nil, errors.New("token is invalid")
+		return errors.New("token is invalid")
 	}
-	return claims, nil
+	return nil
+}
+
+// ExtractBearer returns the bearer token part from an Authorization header.
+// It returns "" when the header is not in the expected "Bearer <token>" form.
+func ExtractBearer(header string) string {
+	header = strings.TrimSpace(header)
+	const prefix = "Bearer "
+	if !strings.HasPrefix(header, prefix) {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(header, prefix))
 }

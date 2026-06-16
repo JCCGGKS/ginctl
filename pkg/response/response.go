@@ -24,8 +24,6 @@ const (
 // gin.Context keys used to carry per-request metadata.
 const (
 	ctxRequestIDKey = "request_id"
-	ctxBizCodeKey   = "biz_code"
-	ctxBizMsgKey    = "biz_msg"
 )
 
 // Body is the unified response envelope.
@@ -62,7 +60,6 @@ func Internal(msg string) *AppError     { return newAppError(http.StatusInternal
 
 // OK writes a success envelope with HTTP 200.
 func OK(c *gin.Context, data any) {
-	setOutcome(c, CodeOK, MsgOK)
 	c.JSON(http.StatusOK, Body{
 		Code:      CodeOK,
 		Msg:       MsgOK,
@@ -80,7 +77,6 @@ func Fail(c *gin.Context, err error) {
 		appErr = Internal(err.Error())
 	}
 
-	setOutcome(c, appErr.Code, appErr.Msg)
 	c.JSON(appErr.HTTPStatus, Body{
 		Code:      appErr.Code,
 		Msg:       appErr.Msg,
@@ -96,25 +92,6 @@ func SetRequestID(c *gin.Context, id string) { c.Set(ctxRequestIDKey, id) }
 
 // RequestID reads the request id, or "" if unset.
 func RequestID(c *gin.Context) string { return getString(c, ctxRequestIDKey) }
-
-func setOutcome(c *gin.Context, code int, msg string) {
-	c.Set(ctxBizCodeKey, code)
-	c.Set(ctxBizMsgKey, msg)
-}
-
-// BizCode reports the business code written by OK/Fail (defaults to CodeOK).
-// The operation-log middleware reads this instead of re-parsing the body.
-func BizCode(c *gin.Context) int {
-	if v, ok := c.Get(ctxBizCodeKey); ok {
-		if code, ok := v.(int); ok {
-			return code
-		}
-	}
-	return CodeOK
-}
-
-// BizMsg reports the business message written by OK/Fail.
-func BizMsg(c *gin.Context) string { return getString(c, ctxBizMsgKey) }
 
 func getString(c *gin.Context, key string) string {
 	if v, ok := c.Get(key); ok {
