@@ -34,7 +34,7 @@ func main() {
 	cfg := config.MustLoad(configFile)
 	slog.Info("config loaded", "env", *env, "file", configFile)
 
-	svcCtx := svc.NewServiceContext(cfg)
+	svcCtx := svc.NewServiceContext(&cfg)
 	engine := router.New(svcCtx)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

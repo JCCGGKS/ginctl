@@ -7,25 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-
-	"gin-scaffold/internal/router"
-	"gin-scaffold/internal/svc"
 )
-
-func init() {
-	router.RegisterCustomRoutes(router.CustomRouteGroup{
-		Prefix: "", // root: liveness probe sits at /healthz
-		Routes: []router.CustomRoute{
-			{
-				Method: http.MethodGet,
-				Path:   "/healthz",
-				Handler: func(_ *svc.ServiceContext) gin.HandlerFunc {
-					return Health
-				},
-			},
-		},
-	})
-}
 
 // Health is a liveness probe. It deliberately bypasses the unified envelope so
 // load balancers can match a trivial body/status — the same pragmatism the
