@@ -1,33 +1,37 @@
 # gin-scaffold
 
-A small, **reusable gin engineering skeleton** distilled from the layered
-architecture of the `mysurl1` go-zero service. It is *not* the short-link
-business — it is a clean starting point for new gin projects.
+A small, reusable Gin engineering skeleton with clean layering, graceful
+startup/shutdown, structured logging (zap), and JWT auth middleware. Clone it
+as the starting point for new Gin services and replace the demo login with your
+own DAO.
 
-The program entrypoint is [`main.go`](./main.go). It boots with **zero external
-dependencies** (in-memory demo DAO), so you can `go run` it immediately and
-replace pieces as you grow.
+## What it includes
+
+- Graceful startup/shutdown: signal-based shutdown plus `http.Server` timeouts.
+- Logging: `go.uber.org/zap` configured from `log.level` and `log.format`.
+- JWT: login endpoint, Bearer auth middleware, and a protected `/api/v1/me`.
+- Unified response envelope and typed `AppError`.
+- Per-environment config files: `etc/config_<env>.yaml`.
 
 ## Layout
 
 ```
-main.go        entrypoint: load config -> svc -> router -> graceful shutdown
-etc/config_<env>.yaml     per-environment runtime config (dev|test|prod)
+main.go        entrypoint: load config -> init logger -> svc -> router -> serve
+etc/config_<env>.yaml     runtime config for dev|test|prod
 internal/
   config/                 config structs + Load() + defaults (viper: defaults<file<env)
   svc/                    ServiceContext: dependency-injection container
-  router/                 routes + per-group middleware wiring (hand-written routes.go)
+  router/                 route registry + per-group middleware wiring
   middleware/             requestid, accesslog, recovery, auth (JWT)
-  handler/                health, auth, resource  (thin HTTP adapters)
-  logic/                  auth, resource          (business orchestration)
-  dao/                    resource DAO interface + in-memory impl
-  model/                  storage structs (db tags)
-  schema/                 request/response DTOs (json/form/binding tags)
+  handler/                health, auth login, me (thin HTTP adapters)
+  logic/                  auth login (business orchestration)
+  schema/                 request/response DTOs
 pkg/
+  logger/                 zap level/format setup
   response/               unified envelope {code,msg,data,request_id,timestamp} + AppError
   token/                  JWT issue/parse (HS256 + custom claims)
-  pagination/             page/size normalization
-docs/ARCHITECTURE.md      analysis of mysurl1 + design rationale
+  pagination/             page/size + id cursor normalization
+docs/ARCHITECTURE.md      design rationale
 ```
 
 ## Layer rule of thumb
@@ -36,113 +40,40 @@ docs/ARCHITECTURE.md      analysis of mysurl1 + design rationale
 |-------|---------|----------|
 | handler | "how does HTTP enter?" | hold business branches |
 | logic | "when & why is each step done?" | touch HTTP or raw SQL |
-| dao | "how is data stored/queried?" | parse HTTP / decide policy |
 | middleware | "what applies across routes?" | hold business rules |
 | svc | "how are deps assembled?" | hold business logic |
 | pkg/* | "what generic thing is reused?" | import internal/* |
 
-Every handler is the same four steps: **bind → call logic → on error `response.Fail` → else `response.OK`**.
-
 ## Run
 
 ```bash
-# defaults to the dev environment -> etc/config_dev.yaml
-go run .
-
-# pick an environment -> loads etc/config_<env>.yaml
-go run . -env prod
-ENV=test go run .
-
-# build + run, or point at an explicit file (overrides -env)
-go build -o bin/server .
-./bin/server -env prod
+go run .                  # defaults to dev -> etc/config_dev.yaml
+go run . -env prod        # etc/config_prod.yaml
+ENV=test go run .         # etc/config_test.yaml
 go run . -f etc/config_dev.yaml
 ```
 
-The dev config listens on `0.0.0.0:8080` (see `etc/config_dev.yaml`).
+## Environment selection & gin mode
 
-### Environment selection
+| flags / env | file loaded | gin mode | log format |
+|-------------|-------------|----------|------------|
+| (none) | `etc/config_dev.yaml` | `debug` | `console` |
+| `-env test` / `ENV=test` | `etc/config_test.yaml` | `test` | `console` |
+| `-env prod` / `ENV=prod` | `etc/config_prod.yaml` | `release` | `json` |
 
-The active environment selects the file `etc/config_<env>.yaml`. Resolution
-precedence is **`-f` (explicit file) > `-env` flag > `ENV` > `dev`**:
+Resolution precedence is `-f` (explicit file) > `-env` flag > `ENV` > `dev`.
 
-| flags / env             | file loaded                 |
-|-------------------------|-----------------------------|
-| (none)                  | `etc/config_dev.yaml`       |
-| `-env prod`             | `etc/config_prod.yaml`      |
-| `ENV=test`              | `etc/config_test.yaml`      |
-| `-c /etc/app -env prod` | `/etc/app/config_prod.yaml` |
-| `-f path/to.yaml`       | `path/to.yaml`              |
-
-### Config precedence (viper)
-
-Configuration loads as **defaults < YAML file < environment**. Any key can be
-overridden by an env var with `.` replaced by `_` (so `server.port` ->
-`SERVER_PORT`):
+## Auth demo
 
 ```bash
-# override server.port without editing the file
-SERVER_PORT=9090 go run . -env dev
+curl -s http://127.0.0.1:8080/api/v1/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin123"}'
 
-# override auth.jwtSecret and log.level on top of the prod file
-AUTH_JWTSECRET='real-secret' LOG_LEVEL=debug ./bin/server -env prod
+curl -s http://127.0.0.1:8080/api/v1/me \
+  -H "Authorization: Bearer <access_token>"
 ```
 
-Opt-in hot-reload is available via `config.Watch(path, onChange)`.
-
-## Try the endpoint
-
-```bash
-# health (plain body, intentionally outside the unified envelope)
-curl -s http://127.0.0.1:8080/healthz
-```
-
-Every JSON response shares the same shape:
-
-```json
-{ "code": 0, "msg": "ok", "data": { }, "request_id": "…", "timestamp": 1700000000 }
-```
-
-## How to extend
-
-**Add an endpoint** (e.g. `GET /api/v1/ping`):
-1. `schema/resource.go`: add the request/response DTOs.
-2. `logic/resource.go`: add a method that validates + calls the DAO.
-3. `handler/resource.go`: add a 4-step handler.
-4. `router/router.go`: register the route (and any middleware) in the right group.
-
-**Swap the in-memory store for MySQL:**
-- Keep the `dao.ResourceDAO` interface; add a `sqlResourceDAO` implementation
-  (database/sql, jmoiron/sqlx, or gorm) and construct it in `svc`.
-- Logic and handler do not change — that is the point of the interface.
-
-**Rename the module** for your project:
-```bash
-go mod edit -module github.com/you/yourapp
-grep -rl 'gin-scaffold/' . | xargs sed -i 's#gin-scaffold/#github.com/you/yourapp/#g'
-```
-
-## Capabilities included
-
-- `go run`-able gin server with graceful shutdown (SIGINT/SIGTERM)
-- viper config: YAML file + defaults + env overrides + `-f` flag + opt-in hot-reload (`config.Watch`)
-- ServiceContext dependency injection
-- Unified response envelope + typed `AppError` → HTTP status mapping
-- JWT issue/verify + auth middleware (available for future protected routes)
-- Global middleware: request id, structured access log (`log/slog`), panic recovery
-- Pagination normalization
-- Interface-based DAO with an in-memory demo
-- Demo endpoint: health
-
-## Intentionally NOT included (to become a real scaffold)
-
-- Real DB/Redis wiring, migrations, a user table + bcrypt login
-- Refresh-token issue/rotate/logout
-- Request validation with friendly i18n error messages
-- Tracing/metrics, rate limiting, CORS
-- A code generator / `gonew` template to stamp out new modules
-
-## Notes
-
-- Module path is `gin-scaffold` while the folder is `mysurl-gin`; rename as above when forking.
-- `gin v1.12` requires Go ≥ 1.25, so `go mod tidy` set `go 1.25.0` and the toolchain auto-upgraded.
+Demo credentials are `admin` / `admin123`; replace `internal/logic/auth.go`
+with a real user lookup + bcrypt compare. The `jwtSecret` is empty in prod and
+must be supplied via `AUTH_JWTSECRET`.

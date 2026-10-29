@@ -6,18 +6,18 @@ source of study is the `mysurl1` go-zero short-link service; the goal was to
 
 ## 1. Ideas worth keeping
 
-- **Documented layer boundaries.** `AGENTS.md` pins each layer to one question
-  (config = what is configurable, schema = what the API exchanges, model = one
-  row, dao = how data is stored, logic = when/why, handler = how HTTP enters,
-  middleware = cross-cutting, svc = how deps assemble, utils = reused generics).
+- **Documented layer boundaries.** Each layer answers one question (config =
+  what is configurable, schema = what the API exchanges, model = one row, dao =
+  how data is stored, logic = when/why, handler = how HTTP enters, middleware =
+  cross-cutting, svc = how deps assemble, utils = reused generics).
 - **Thin handlers.** Fixed shape: parse → new logic → call → unified write.
 - **Logic constructor pattern** `(ctx, svcCtx)`; methods orchestrate
   validate → cache → dao → assemble.
 - **Pure DAOs.** Raw SQL, soft delete, dynamic query builder, cursor pagination
   + count, transactions.
-- **Unified response + typed error** (`HTTPError` mapped via `errors.As`).
+- **Unified response + typed error** (`AppError` mapped via `errors.As`).
 - **ServiceContext as a DI container** (constructed once).
-- **Auth claims passed via context**, injected by middleware, read in logic.
+- **Auth claims passed via context**, injected by middleware, read in handlers.
 - **Cross-cutting via middleware**: JWT auth.
 - **Strategy + registry** for pluggable short-code generators.
 - **Background worker with interface segregation** (`VisitCountCache`).
@@ -32,7 +32,7 @@ source of study is the `mysurl1` go-zero short-link service; the goal was to
 | `conf.MustLoad` | YAML + tag defaults | `spf13/viper` (per-env `config_<env>.yaml` + `SetDefault` + env vars + opt-in watch) |
 | `httpx.Parse` / `httpx.WriteJsonCtx` | bind / write | `c.ShouldBind*` / `c.JSON` |
 | `sqlx.SqlConn` | data access | `database/sql` / `sqlx` / `gorm` |
-| `logx` | logging | `log/slog` |
+| `logx` | logging | `go.uber.org/zap` |
 | `stat`, `syncx.SingleFlight` | metrics / dedup | business-specific, add as needed |
 
 Key insight: handlers and middleware use **standard `net/http` signatures**
@@ -43,9 +43,9 @@ sqlx and logx are truly go-zero-bound.
 ## 3. Migrated into this skeleton
 
 Layering & boundaries · unified response + typed error · logic constructor
-pattern · ServiceContext DI · JWT auth + claims-in-context · pagination
-normalization · viper config (per-env file + defaults + env overrides) ·
-graceful shutdown.
+pattern · ServiceContext DI · JWT auth + claims-in-context · zap structured
+logging · pagination normalization · viper config (per-env file + defaults +
+env overrides) · graceful shutdown.
 
 ## 4. Deliberately left in the business project
 
@@ -55,24 +55,37 @@ Redis aggregation + async flush · concrete SQL/schema.
 
 ## 5. Design principles of the skeleton
 
-Few dependencies (gin + jwt + viper) · thin handler / thick logic / pure dao /
+Few dependencies (gin + jwt + viper + zap) · thin handler / thick logic /
 cross-cutting middleware · interface-based DAO · one response contract · deps
 centralized in svc · observability (request id + structured access log + panic
-guard) · externalized config with defaults + env overrides · graceful shutdown · runs with zero
-external dependencies.
+guard) · externalized config with defaults + env overrides · graceful shutdown ·
+runs with zero external infrastructure.
 
-## 6. Request flow (`GET /healthz`)
+## 6. Request flows
+
+Public liveness probe (`GET /healthz`):
 
 ```
-RequestID -> AccessLog -> Recovery -> Auth(group) -> Handler.bind
-  -> Logic.List: pagination.Normalize -> ResourceDAO.Count/List -> assemble DTO
-  -> response.OK (writes envelope + stores biz outcome on context)
-<- AccessLog logs status + request_id
+RequestID -> AccessLog -> Recovery -> handler.Health -> 200 {status:"ok"}
+```
+
+Login and protected read (`POST /api/v1/login`, `GET /api/v1/me`):
+
+```
+POST /api/v1/login:
+  RequestID -> AccessLog -> Recovery -> handler.Login.bind
+    -> logic.Login (demo credential check) -> token.Issue
+    -> response.OK {access_token, user}
+
+GET /api/v1/me:
+  RequestID -> AccessLog -> Recovery -> middleware.Auth (verify Bearer + set claims)
+    -> handler.Me (CurrentClaims) -> response.OK {id, username}
+<- AccessLog logs status + request_id (+ user_id when authenticated)
 ```
 
 ## 7. Roadmap
 
-- **M0 (done):** runnable skeleton, health only, no deps.
+- **M0 (done):** runnable skeleton: health, demo login, JWT middleware, zap.
 - **M1:** real MySQL DAO, user table, bcrypt login.
 - **M2:** refresh-token issue/rotate/logout.
 - **M3:** tracing/metrics, validation error i18n; config hot-reload done (opt-in `config.Watch`).
