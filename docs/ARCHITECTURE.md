@@ -29,7 +29,7 @@ source of study is the `mysurl1` go-zero short-link service; the goal was to
 |---------|------|-----------------|
 | `rest.Server`, `rest.Route`, `WithMiddlewares` | routing + server lifecycle | `gin.Engine` / groups |
 | `config` embeds `rest.RestConf` | server/log/trace config | custom `ServerConf` + `http.Server` |
-| `conf.MustLoad` | YAML + tag defaults | `spf13/viper` (per-env `config_<env>.yaml` + `SetDefault` + env vars + opt-in watch) |
+| `conf.MustLoad` | YAML + tag defaults | `spf13/viper` (per-env `config_<env>.yaml` + `SetDefault` + env vars) |
 | `httpx.Parse` / `httpx.WriteJsonCtx` | bind / write | `c.ShouldBind*` / `c.JSON` |
 | `sqlx.SqlConn` | data access | `database/sql` / `sqlx` / `gorm` |
 | `logx` | logging | `go.uber.org/zap` |
@@ -44,8 +44,9 @@ sqlx and logx are truly go-zero-bound.
 
 Layering & boundaries · unified response + typed error · logic constructor
 pattern · ServiceContext DI · JWT auth + claims-in-context · zap structured
-logging · pagination normalization · viper config (per-env file + defaults +
-env overrides) · graceful shutdown.
+logging · interface-based UserDAO (in-memory) + bcrypt login · pagination
+normalization · viper config (per-env file + defaults + env overrides) ·
+graceful shutdown.
 
 ## 4. Deliberately left in the business project
 
@@ -74,7 +75,7 @@ Login and protected read (`POST /api/v1/login`, `GET /api/v1/me`):
 ```
 POST /api/v1/login:
   RequestID -> AccessLog -> Recovery -> handler.Login.bind
-    -> logic.Login (demo credential check) -> token.Issue
+    -> logic.Login (dao lookup + bcrypt compare) -> token.Issue
     -> response.OK {access_token, user}
 
 GET /api/v1/me:
@@ -85,8 +86,8 @@ GET /api/v1/me:
 
 ## 7. Roadmap
 
-- **M0 (done):** runnable skeleton: health, demo login, JWT middleware, zap.
-- **M1:** real MySQL DAO, user table, bcrypt login.
+- **M0 (done):** runnable skeleton: health, bcrypt login via in-memory DAO, JWT middleware, zap.
+- **M1:** real MySQL DAO, user table.
 - **M2:** refresh-token issue/rotate/logout.
-- **M3:** tracing/metrics, validation error i18n; config hot-reload done (opt-in `config.Watch`).
+- **M3:** tracing/metrics, validation error i18n.
 - **M4:** turn it into a code generator / `gonew` template.

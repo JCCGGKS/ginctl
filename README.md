@@ -2,15 +2,16 @@
 
 A small, reusable Gin engineering skeleton with clean layering, graceful
 startup/shutdown, structured logging (zap), and JWT auth middleware. Clone it
-as the starting point for new Gin services and replace the demo login with your
-own DAO.
+as the starting point for new Gin services and swap the in-memory DAO for your
+own storage.
 
 ## What it includes
 
 - Graceful startup/shutdown: signal-based shutdown plus `http.Server` timeouts.
 - Logging: `go.uber.org/zap` configured from `log.level` and `log.format`.
 - JWT: login endpoint, Bearer auth middleware, and a protected `/api/v1/me`.
-- Unified response envelope and typed `AppError`.
+- Unified response envelope + typed `AppError` with business error codes.
+- Interface-based data access: `internal/dao` contract + in-memory demo store.
 - Per-environment config files: `etc/config_<env>.yaml`.
 
 ## Layout
@@ -21,14 +22,16 @@ etc/config_<env>.yaml     runtime config for dev|test|prod
 internal/
   config/                 config structs + Load() + defaults (viper: defaults<file<env)
   svc/                    ServiceContext: dependency-injection container
-  router/                 route registry + per-group middleware wiring
+  router/                 gin engine + global middleware + explicit routes
   middleware/             requestid, accesslog, recovery, auth (JWT)
   handler/                health, auth login, me (thin HTTP adapters)
   logic/                  auth login (business orchestration)
+  dao/                    UserDAO interface + memory/ implementation
+  model/                  storage-side structs (db tags)
   schema/                 request/response DTOs
 pkg/
   logger/                 zap level/format setup
-  response/               unified envelope {code,msg,data,request_id,timestamp} + AppError
+  response/               unified envelope + AppError + business codes
   token/                  JWT issue/parse (HS256 + custom claims)
   pagination/             page/size + id cursor normalization
 docs/ARCHITECTURE.md      design rationale
@@ -40,6 +43,7 @@ docs/ARCHITECTURE.md      design rationale
 |-------|---------|----------|
 | handler | "how does HTTP enter?" | hold business branches |
 | logic | "when & why is each step done?" | touch HTTP or raw SQL |
+| dao | "how is data stored/queried?" | parse HTTP / decide policy |
 | middleware | "what applies across routes?" | hold business rules |
 | svc | "how are deps assembled?" | hold business logic |
 | pkg/* | "what generic thing is reused?" | import internal/* |
@@ -74,6 +78,13 @@ curl -s http://127.0.0.1:8080/api/v1/me \
   -H "Authorization: Bearer <access_token>"
 ```
 
-Demo credentials are `admin` / `admin123`; replace `internal/logic/auth.go`
-with a real user lookup + bcrypt compare. The `jwtSecret` is empty in prod and
-must be supplied via `AUTH_JWTSECRET`.
+The demo user is seeded by the in-memory DAO with a bcrypt hash
+(`admin` / `admin123`). Replace `internal/dao/memory` with a real `UserDAO`
+(MySQL/gorm) and it plugs into `internal/svc` without touching logic. The
+`jwtSecret` is empty in prod and must be supplied via `AUTH_JWTSECRET`.
+
+## Response contract
+
+Every JSON endpoint returns `{code,msg,data,request_id,timestamp}`. `code=0`
+means success; business codes are independent of HTTP status
+(`40000/40100/40300/40400/40900/50000`).
