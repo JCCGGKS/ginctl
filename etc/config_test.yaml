@@ -5,6 +5,8 @@ server:
   mode: test                  # gin mode: debug | release | test
   readTimeoutSeconds: 15
   writeTimeoutSeconds: 15
+  readHeaderTimeoutSeconds: 5
+  idleTimeoutSeconds: 60
   shutdownTimeoutSeconds: 10
 
 auth:
@@ -13,3 +15,4 @@ auth:
 
 log:
   level: info
+  format: console

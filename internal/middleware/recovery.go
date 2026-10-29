@@ -1,11 +1,11 @@
 package middleware
 
 import (
-	"log/slog"
-
+	"gin-scaffold/pkg/logger"
 	"gin-scaffold/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // Recovery converts a panic into a unified 500 response instead of crashing
@@ -14,10 +14,10 @@ func Recovery() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("panic recovered",
-					"error", r,
-					"path", c.Request.URL.Path,
-					"request_id", response.RequestID(c),
+				logger.Error("panic recovered",
+					zap.Any("error", r),
+					zap.String("path", c.Request.URL.Path),
+					zap.String("request_id", response.RequestID(c)),
 				)
 				response.Fail(c, response.Internal("internal server error"))
 				c.Abort()

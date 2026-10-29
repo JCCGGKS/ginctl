@@ -1,6 +1,4 @@
 // Package router maps URLs to handlers and composes middleware per group.
-// This is the gin analogue of go-zero's generated routes.go — here it is
-// hand-written and grouped instead of generated from a .api file.
 package router
 
 import (
@@ -8,11 +6,16 @@ import (
 
 	"gin-scaffold/internal/middleware"
 	"gin-scaffold/internal/svc"
+	"gin-scaffold/pkg/logger"
 )
 
 // New builds the gin engine with global middleware and all routes.
 func New(svcCtx *svc.ServiceContext) *gin.Engine {
 	gin.SetMode(svcCtx.Config.Server.Mode)
+
+	// Route gin's own debug/warning output through zap too.
+	gin.DefaultWriter = logger.Writer()
+	gin.DefaultErrorWriter = logger.Writer()
 
 	engine := gin.New()
 

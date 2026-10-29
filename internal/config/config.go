@@ -9,12 +9,14 @@ package config
 
 import (
 	"fmt"
-	"log/slog"
 	"path/filepath"
 	"strings"
 
+	"gin-scaffold/pkg/logger"
+
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
 )
 
 // DefaultEnv is the environment assumed when the caller supplies none.
@@ -39,12 +41,14 @@ type Config struct {
 }
 
 type ServerConf struct {
-	Host                   string `mapstructure:"host"`
-	Port                   int    `mapstructure:"port"`
-	Mode                   string `mapstructure:"mode"`
-	ReadTimeoutSeconds     int    `mapstructure:"readTimeoutSeconds"`
-	WriteTimeoutSeconds    int    `mapstructure:"writeTimeoutSeconds"`
-	ShutdownTimeoutSeconds int    `mapstructure:"shutdownTimeoutSeconds"`
+	Host                     string `mapstructure:"host"`
+	Port                     int    `mapstructure:"port"`
+	Mode                     string `mapstructure:"mode"`
+	ReadTimeoutSeconds       int    `mapstructure:"readTimeoutSeconds"`
+	WriteTimeoutSeconds      int    `mapstructure:"writeTimeoutSeconds"`
+	ReadHeaderTimeoutSeconds int    `mapstructure:"readHeaderTimeoutSeconds"`
+	IdleTimeoutSeconds       int    `mapstructure:"idleTimeoutSeconds"`
+	ShutdownTimeoutSeconds   int    `mapstructure:"shutdownTimeoutSeconds"`
 }
 
 type AuthConf struct {
@@ -53,7 +57,8 @@ type AuthConf struct {
 }
 
 type LogConf struct {
-	Level string `mapstructure:"level"`
+	Level  string `mapstructure:"level"`
+	Format string `mapstructure:"format"`
 }
 
 // MustLoad loads the config or panics. Use at startup only.
@@ -87,7 +92,7 @@ func Watch(path string, onChange func(Config)) error {
 	v.OnConfigChange(func(e fsnotify.Event) {
 		c, err := unmarshal(v)
 		if err != nil {
-			slog.Error("reload config failed", "file", e.Name, "error", err)
+			logger.Error("reload config failed", zap.String("file", e.Name), zap.Error(err))
 			return
 		}
 		onChange(c)
@@ -130,8 +135,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.mode", "debug")
 	v.SetDefault("server.readTimeoutSeconds", 15)
 	v.SetDefault("server.writeTimeoutSeconds", 15)
+	v.SetDefault("server.readHeaderTimeoutSeconds", 5)
+	v.SetDefault("server.idleTimeoutSeconds", 60)
 	v.SetDefault("server.shutdownTimeoutSeconds", 10)
 	v.SetDefault("auth.jwtSecret", "")
 	v.SetDefault("auth.accessExpireSeconds", 900)
 	v.SetDefault("log.level", "info")
+	v.SetDefault("log.format", "console")
 }
