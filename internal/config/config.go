@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
+	_ "time/tzdata"
 
 	"github.com/spf13/viper"
 )
@@ -57,9 +59,13 @@ type AuthConf struct {
 }
 
 type LogConf struct {
-	RootDir string `mapstructure:"rootDir"`
-	Level   string `mapstructure:"level"`
-	Format  string `mapstructure:"format"`
+	RootDir    string `mapstructure:"rootDir"`
+	Level      string `mapstructure:"level"`
+	Format     string `mapstructure:"format"`
+	Timezone   string `mapstructure:"timezone"`
+	MaxSizeMB  int    `mapstructure:"maxSizeMB"`
+	MaxAgeDays int    `mapstructure:"maxAgeDays"`
+	Compress   bool   `mapstructure:"compress"`
 }
 
 // MySQLConf holds connection-pool settings for a MySQL instance. DSN builds the
@@ -163,6 +169,18 @@ func (c Config) Validate(env string) error {
 	if strings.TrimSpace(c.Log.RootDir) == "" {
 		return errors.New("log.rootDir is required")
 	}
+	if strings.TrimSpace(c.Log.Timezone) == "" {
+		return errors.New("log.timezone is required")
+	}
+	if _, err := time.LoadLocation(c.Log.Timezone); err != nil {
+		return fmt.Errorf("log.timezone is invalid: %w", err)
+	}
+	if c.Log.MaxSizeMB < 0 {
+		return fmt.Errorf("log.maxSizeMB must not be negative, got %d", c.Log.MaxSizeMB)
+	}
+	if c.Log.MaxAgeDays < 0 {
+		return fmt.Errorf("log.maxAgeDays must not be negative, got %d", c.Log.MaxAgeDays)
+	}
 	return nil
 }
 
@@ -220,6 +238,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "console")
 	v.SetDefault("log.rootDir", "logs")
+	v.SetDefault("log.timezone", "Asia/Shanghai")
+	v.SetDefault("log.maxSizeMB", 300)
+	v.SetDefault("log.maxAgeDays", 30)
+	v.SetDefault("log.compress", true)
 	v.SetDefault("mysql.host", "127.0.0.1")
 	v.SetDefault("mysql.port", 3306)
 	v.SetDefault("mysql.user", "root")

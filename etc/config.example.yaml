@@ -1,0 +1,55 @@
+# gin-scaffold 配置示例
+# 用法：复制为 etc/config_local.yaml（已被 .gitignore 忽略）或 etc/config_<env>.yaml 后修改。
+# 优先级：代码默认值 < YAML 文件 < 环境变量。
+# 环境变量名没有前缀，配置路径中的点会替换为下划线，例如 server.port -> SERVER_PORT。
+# prod 额外要求：server.mode 必须是 release，auth.jwtSecret 至少 32 字节。
+
+server:
+  host: "0.0.0.0"                    # HTTP 监听地址；0.0.0.0 表示监听所有网卡，127.0.0.1 仅本机访问
+  port: 8080                         # HTTP 监听端口，必须是 1-65535；环境变量 SERVER_PORT
+  mode: "debug"                      # Gin 运行模式：debug|release|test；prod 必须为 release
+  maxBodyBytes: 1048576              # 单个请求体最大字节数，默认 1 MiB；超过后登录接口返回 413
+  trustedProxies: []                 # 可信反向代理 CIDR 列表；空列表表示不信任 X-Forwarded-For，ClientIP 使用直连地址
+  readTimeoutSeconds: 15             # 读取整个请求（含请求体）的最长时间，单位秒；超时由 http.Server 处理
+  writeTimeoutSeconds: 15            # 写入响应和读取请求体的总超时，单位秒；长耗时接口需要评估是否调大
+  readHeaderTimeoutSeconds: 5        # 读取请求头的超时，单位秒；用于降低 Slowloris 类慢请求风险
+  idleTimeoutSeconds: 60             # HTTP keep-alive 连接空闲超时，单位秒；超时后连接关闭
+  shutdownTimeoutSeconds: 10         # 收到 SIGINT/SIGTERM 后等待优雅关闭的最长时间，单位秒
+
+auth:
+  jwtSecret: "change-me-before-deploying-32bytes"  # HS256 签名密钥，必填；prod 至少 32 字节，建议通过 AUTH_JWTSECRET 注入
+  accessExpireSeconds: 900           # access token 有效期，单位秒；当前默认 900 秒（15 分钟）
+  loginRateLimitPerMinute: 10        # 每个客户端 IP 每分钟登录尝试上限；当前 0 会回退为 10，不能用来关闭限流
+
+log:
+  rootDir: "logs"                    # 日志根目录；相对路径基于进程工作目录，文件按 <rootDir>/<YYYY-MM>/<YYYY-MM-DD>_<module>.log 生成
+  level: "info"                      # 全局最低日志级别：debug|info|warn|error，作用于 app/business/gorm/access 四个模块
+  format: "console"                  # 日志文件编码格式：json|console；生产环境建议 json，便于采集和检索
+  timezone: "Asia/Shanghai"          # 日志切日和保留日期使用的时区；必须能被 time.LoadLocation 识别
+  maxSizeMB: 300                     # 单个日志文件最大体积，单位 MiB；超过后生成 <日期>_<模块>.<序号>.log，0 表示不按大小分片
+  maxAgeDays: 30                     # 日志保留天数；清理早于今天减去该天数的历史文件，0 表示不按天数清理
+  compress: true                     # 是否把今天之前的 .log 文件压缩为 .gz；历史 .gz 不会被重复压缩
+
+mysql:
+  host: "127.0.0.1"                  # MySQL 主机地址；当前骨架只保存配置并生成 DSN，尚未建立实际连接
+  port: 3306                         # MySQL 端口；环境变量 MYSQL_PORT
+  user: "app"                        # MySQL 用户名；环境变量 MYSQL_USER
+  password: "change-me"              # MySQL 密码；建议通过 MYSQL_PASSWORD 注入，不要提交真实密码
+  database: "gin_scaffold"           # 默认数据库名；环境变量 MYSQL_DATABASE
+  charset: "utf8mb4"                 # MySQL 连接字符集，DSN 中会拼接到 charset 参数
+  maxOpenConns: 100                  # 连接池最大打开连接数；接入 database/sql 或 gorm 后生效
+  maxIdleConns: 10                   # 连接池最大空闲连接数；接入数据库客户端后生效
+  connMaxLifetimeSeconds: 300        # 单个连接最长存活时间，单位秒；用于规避数据库侧连接过期
+  connMaxIdleTimeSeconds: 60         # 单个连接最长空闲时间，单位秒；超过后按连接池实现回收
+
+redis:
+  host: "127.0.0.1"                  # Redis 主机地址；当前骨架只保存配置并生成 Addr，尚未创建 Redis 客户端
+  port: 6379                         # Redis 端口；环境变量 REDIS_PORT
+  password: "change-me"              # Redis 密码；建议通过 REDIS_PASSWORD 注入，不要提交真实密码
+  db: 0                              # Redis 逻辑数据库编号，范围由 Redis 服务端配置决定
+  poolSize: 100                      # Redis 客户端连接池最大连接数；接入客户端后使用
+  minIdleConns: 10                   # Redis 连接池最小空闲连接数；用于减少突发请求时的建连开销
+  dialTimeoutSeconds: 5              # 建立 Redis 连接的超时时间，单位秒
+  readTimeoutSeconds: 3              # Redis 单次读取超时时间，单位秒
+  writeTimeoutSeconds: 3             # Redis 单次写入超时时间，单位秒
+  idleTimeoutSeconds: 300            # Redis 空闲连接回收时间，单位秒；具体行为取决于使用的客户端

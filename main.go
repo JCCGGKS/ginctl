@@ -50,7 +50,15 @@ func run() error {
 		return err
 	}
 
-	if err := logger.Init(cfg.Log.RootDir, cfg.Log.Level, cfg.Log.Format); err != nil {
+	if err := logger.Init(logger.Options{
+		RootDir:    cfg.Log.RootDir,
+		Level:      cfg.Log.Level,
+		Format:     cfg.Log.Format,
+		Timezone:   cfg.Log.Timezone,
+		MaxSizeMB:  cfg.Log.MaxSizeMB,
+		MaxAgeDays: cfg.Log.MaxAgeDays,
+		Compress:   cfg.Log.Compress,
+	}); err != nil {
 		return fmt.Errorf("init logger: %w", err)
 	}
 	bg := context.Background()

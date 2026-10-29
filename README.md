@@ -82,13 +82,13 @@ for wiring real clients in `internal/svc`.
 ## Logging
 
 `log.rootDir` is the only log path setting. The service creates one zap logger
-per module and writes one file per module per local day:
+per module and writes one file per module per day in the configured timezone:
 
 ```
-logs/2026-10-29/app.log
-logs/2026-10-29/business.log
-logs/2026-10-29/gorm.log
-logs/2026-10-29/access.log
+logs/2026-10/2026-10-29_app.log
+logs/2026-10/2026-10-29_business.log
+logs/2026-10/2026-10-29_gorm.log
+logs/2026-10/2026-10-29_access.log
 ```
 
 - `app`: startup, shutdown, server errors, panic recovery, and unhandled 5xx.
@@ -97,9 +97,15 @@ logs/2026-10-29/access.log
 - `access`: one structured line per HTTP request.
 
 `log.level` filters all modules. `log.format` selects `json` or `console` for
-the file encoder. The request-id middleware stores the id in the request
-`context.Context`, and every module logger automatically adds `request_id`, so
-one request can be followed across business, SQL, and access logs.
+the file encoder. `log.timezone` controls the day boundary. `log.maxSizeMB`
+splits an oversized day into numbered files such as `2026-10-29_app.1.log`.
+`log.maxAgeDays` removes files older than the configured number of days, and
+`log.compress` gzips completed files from earlier days. Set `maxSizeMB` or
+`maxAgeDays` to `0` to disable that policy.
+
+The request-id middleware stores the id in the request `context.Context`, and
+every module logger automatically adds `request_id`, so one request can be
+followed across business, SQL, and access logs.
 
 Wire the GORM module logger when a database is added:
 

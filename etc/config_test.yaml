@@ -20,6 +20,10 @@ log:
   rootDir: logs
   level: info
   format: console
+  timezone: Asia/Shanghai
+  maxSizeMB: 300
+  maxAgeDays: 30
+  compress: true
 
 mysql:
   host: 127.0.0.1

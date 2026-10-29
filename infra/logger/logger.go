@@ -44,14 +44,34 @@ var (
 	current   = newFallbackManager()
 )
 
+// Options controls file-backed module logging.
+type Options struct {
+	RootDir    string
+	Level      string
+	Format     string
+	Timezone   string
+	MaxSizeMB  int
+	MaxAgeDays int
+	Compress   bool
+}
+
 // Init replaces the process loggers with file-backed module loggers. rootDir
 // is the only path setting; files are written to
-// <rootDir>/<YYYY-MM-DD>/<module>.log. level accepts debug|info|warn|error;
-// format accepts json|console and controls the file encoder.
-func Init(rootDir, level, format string) error {
-	rootDir = strings.TrimSpace(rootDir)
+// <rootDir>/<YYYY-MM>/<YYYY-MM-DD>_<module>.log. level accepts
+// debug|info|warn|error; format accepts json|console and controls the file
+// encoder.
+func Init(opts Options) error {
+	rootDir := strings.TrimSpace(opts.RootDir)
 	if rootDir == "" {
 		return errors.New("log root dir is required")
+	}
+	timezone := strings.TrimSpace(opts.Timezone)
+	if timezone == "" {
+		timezone = "Local"
+	}
+	location, err := time.LoadLocation(timezone)
+	if err != nil {
+		return fmt.Errorf("load log timezone %q: %w", timezone, err)
 	}
 
 	modules := []string{moduleApp, moduleBusiness, moduleGORM, moduleAccess}
@@ -64,11 +84,17 @@ func Init(rootDir, level, format string) error {
 		}
 	}
 
-	jsonEncoding := strings.EqualFold(format, "json")
-	levelValue := parseLevel(level)
+	jsonEncoding := strings.EqualFold(opts.Format, "json")
+	levelValue := parseLevel(opts.Level)
 	now := time.Now()
+	writerOptions := dailyWriterOptions{
+		location:     location,
+		maxSizeBytes: int64(opts.MaxSizeMB) * 1024 * 1024,
+		maxAgeDays:   opts.MaxAgeDays,
+		compress:     opts.Compress,
+	}
 	for _, module := range modules {
-		writer, err := newDailyWriter(rootDir, module, now)
+		writer, err := newDailyWriter(rootDir, module, now, writerOptions)
 		if err != nil {
 			closeWriters()
 			return fmt.Errorf("init %s logger: %w", module, err)

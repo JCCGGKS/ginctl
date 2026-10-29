@@ -1,6 +1,6 @@
 # gin-scaffold 当前骨架模块梳理
 
-> 基线提交：`b2c375a feat(logging): add module-scoped daily rotated logs`
+> 基线状态：当前工作区（在 b2c375a 基础上增加日志时区、大小分片、保留和压缩配置）
 >
 > 整理目标：按模块说明当前代码的职责、依赖边界、运行链路和审查重点。本文描述的是当前已实现状态，不把规划中的能力写成既有能力。
 
@@ -9,7 +9,7 @@
 - 项目是一个可独立运行、默认不依赖 MySQL/Redis 的 Gin 服务骨架。
 - 分层主线清晰：`handler -> business -> dao`，`middleware` 负责横切能力，`svc` 负责依赖装配，`infra` 放通用基础设施。
 - 启动流程包含配置加载、配置校验、日志初始化、依赖装配、路由构建、HTTP 服务和优雅关闭。
-- 已有能力：JWT 登录与鉴权、统一响应、错误码、访问日志、请求 ID、请求体限制、登录限流、panic 恢复、四模块日志、按天切割。
+- 已有能力：JWT 登录与鉴权、统一响应、错误码、访问日志、请求 ID、请求体限制、登录限流、panic 恢复、四模块日志、按天切割、日志压缩和保留清理。
 - 当前仍是骨架而非完整生产实现：MySQL/Redis 只有配置，内存 DAO 是默认实现，prod 下没有真实用户数据源，限流和 JWT 都是单机/无状态实现。
 - 日志已按 `app`、`business`、`gorm`、`access` 拆分，并通过 `request_id` 串联；当前没有真实 GORM 连接，因此 `gorm.log` 只会创建文件，接入数据库后才会产生 SQL 日志。
 
@@ -108,7 +108,7 @@ main
 
 ## 4. 配置模块
 
-文件：`internal/config/config.go`、`etc/config_dev.yaml`、`etc/config_test.yaml`、`etc/config_prod.yaml`
+文件：`internal/config/config.go`、`etc/config.example.yaml`、`etc/config_dev.yaml`、`etc/config_test.yaml`、`etc/config_prod.yaml`
 
 ### 配置来源与优先级
 
@@ -132,7 +132,7 @@ main
 |---|---|---|
 | `server` | host、port、mode、maxBodyBytes、trustedProxies、各类超时 | HTTP Server 和 Gin 行为 |
 | `auth` | jwtSecret、accessExpireSeconds、loginRateLimitPerMinute | JWT 和登录限流 |
-| `log` | rootDir、level、format | 日志根目录、级别和文件编码 |
+| `log` | rootDir、level、format、timezone、maxSizeMB、maxAgeDays、compress | 日志根目录、级别、编码、切日时区、大小分片、保留和压缩 |
 | `mysql` | 连接、库名、连接池、超时 | 仅配置和 DSN 生成，尚未建立连接 |
 | `redis` | 地址、密码、DB、连接池、超时 | 仅配置和 Addr 生成，尚未建立客户端 |
 
@@ -145,7 +145,7 @@ main
 - 请求体上限和各类 Server 超时必须为正数。
 - JWT secret 必填；prod 长度至少 32 字节。
 - access TTL 为正数，登录限流不能为负数。
-- 日志级别只能是 `debug/info/warn/error`，格式只能是 `console/json`，rootDir 不能为空。
+- 日志级别只能是 `debug/info/warn/error`，格式只能是 `console/json`；rootDir 和 timezone 不能为空，timezone 必须可加载；maxSizeMB 和 maxAgeDays 不能为负数。
 
 ### 审查关注
 
@@ -387,17 +387,20 @@ type UserDAO interface {
 
 | 模块 | 文件 | 用途 |
 |---|---|---|
-| `app` | `<rootDir>/<YYYY-MM-DD>/app.log` | 启动、关闭、Server 错误、panic、未处理 5xx |
-| `business` | `<rootDir>/<YYYY-MM-DD>/business.log` | 登录成功/拒绝等业务事件 |
-| `gorm` | `<rootDir>/<YYYY-MM-DD>/gorm.log` | SQL、耗时、影响行数、慢查询、SQL 错误 |
-| `access` | `<rootDir>/<YYYY-MM-DD>/access.log` | 每请求一条访问日志 |
+| `app` | `<rootDir>/<YYYY-MM>/<YYYY-MM-DD>_app.log` | 启动、关闭、Server 错误、panic、未处理 5xx |
+| `business` | `<rootDir>/<YYYY-MM>/<YYYY-MM-DD>_business.log` | 登录成功/拒绝等业务事件 |
+| `gorm` | `<rootDir>/<YYYY-MM>/<YYYY-MM-DD>_gorm.log` | SQL、耗时、影响行数、慢查询、SQL 错误 |
+| `access` | `<rootDir>/<YYYY-MM>/<YYYY-MM-DD>_access.log` | 每请求一条访问日志 |
 
 关键实现：
 
 - 每个模块一个独立 `*zap.Logger` 和一个独立 core。
 - 所有 logger 共享同一个 rootDir，不暴露四个路径配置。
-- `dailyWriter` 在每次写入时检查本地日期，跨天后自动关闭旧文件并打开新日期文件。
+- `dailyWriter` 使用 `log.timezone` 检查日期，跨天后自动关闭旧文件并打开新日期文件。
 - 日志文件使用追加写，启动时会创建当天文件和目录。
+- `log.maxSizeMB` 为正数时，单个文件达到上限后继续生成 `<日期>_<模块>.<序号>.log`；设为 `0` 可关闭大小分片。
+- `log.maxAgeDays` 为正数时，启动和跨天时清理早于保留窗口的历史文件；设为 `0` 可关闭按天保留。
+- `log.compress=true` 时，今天之前已关闭的 `.log` 文件会压缩为 `.gz`，启动和跨天时异步执行。
 - `log.level` 是四个模块共同的最低级别。
 - `log.format=json` 使用 JSON 编码；`console` 使用无颜色 console 编码写入文件。
 - 请求级日志方法接收 `context.Context`，通过 `infra/requestid` 自动补充 `request_id`。
@@ -413,9 +416,10 @@ type UserDAO interface {
 
 当前运维边界：
 
-- 没有日志保留天数、压缩和清理策略，文件会持续增长。
+- 保留和压缩只会处理符合当前日期文件命名规则的文件；升级前旧路径下的日志不会自动迁移或清理。
+- 清理不会主动删除空的月份目录，只会删除过期文件和压缩文件。
 - 日志只写本地文件，不输出 stdout，也没有远程采集接入。
-- 按本地时区切日；容器部署时需要确认时区设置。
+- 切日和保留窗口使用 `log.timezone`；容器部署时应显式配置 `Asia/Shanghai` 或其他业务时区。
 
 ### 12.2 请求 ID
 

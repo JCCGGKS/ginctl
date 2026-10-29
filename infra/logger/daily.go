@@ -1,34 +1,72 @@
 package logger
 
 import (
+	"compress/gzip"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const dateLayout = "2006-01-02"
 
+type dailyWriterOptions struct {
+	location     *time.Location
+	maxSizeBytes int64
+	maxAgeDays   int
+	compress     bool
+}
+
 // dailyWriter writes one module's encoded stream to
-// <rootDir>/<YYYY-MM-DD>/<module>.log and switches files when the local date
-// changes. A mutex is required because each zap core may be used concurrently.
+// <rootDir>/<YYYY-MM>/<YYYY-MM-DD>_<module>.log and switches files when the
+// configured timezone's local date changes. When maxSizeBytes is positive it
+// also splits an oversized day into numbered parts. A mutex is required because
+// each zap core may be used concurrently.
 type dailyWriter struct {
-	rootDir string
-	module  string
+	rootDir      string
+	module       string
+	location     *time.Location
+	maxSizeBytes int64
+	maxAgeDays   int
+	compress     bool
 
 	mu   sync.Mutex
 	day  string
+	part int
+	size int64
 	file *os.File
+
+	maintenanceWG sync.WaitGroup
+	maintaining   atomic.Bool
 }
 
-func newDailyWriter(rootDir, module string, now time.Time) (*dailyWriter, error) {
-	w := &dailyWriter{rootDir: rootDir, module: module}
+func newDailyWriter(rootDir, module string, now time.Time, opts dailyWriterOptions) (*dailyWriter, error) {
+	if opts.location == nil {
+		opts.location = time.Local
+	}
+	w := &dailyWriter{
+		rootDir:      rootDir,
+		module:       module,
+		location:     opts.location,
+		maxSizeBytes: opts.maxSizeBytes,
+		maxAgeDays:   opts.maxAgeDays,
+		compress:     opts.compress,
+	}
+
 	w.mu.Lock()
-	defer w.mu.Unlock()
-	if err := w.open(now); err != nil {
+	err := w.open(now)
+	w.mu.Unlock()
+	if err != nil {
 		return nil, err
 	}
+
+	w.startMaintenance(now)
 	return w, nil
 }
 
@@ -36,13 +74,27 @@ func (w *dailyWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	now := time.Now()
-	if w.file == nil || w.day != now.Format(dateLayout) {
+	now := time.Now().In(w.location)
+	today := now.Format(dateLayout)
+	if w.file == nil || w.day != today {
+		previousDay := w.day
 		if err := w.open(now); err != nil {
 			return 0, err
 		}
+		if previousDay != "" {
+			w.startMaintenance(now)
+		}
 	}
-	return w.file.Write(p)
+
+	if w.maxSizeBytes > 0 && w.size > 0 && w.size+int64(len(p)) > w.maxSizeBytes {
+		if err := w.openPart(today, w.part+1); err != nil {
+			return 0, err
+		}
+	}
+
+	n, err := w.file.Write(p)
+	w.size += int64(n)
+	return n, err
 }
 
 func (w *dailyWriter) Sync() error {
@@ -55,6 +107,8 @@ func (w *dailyWriter) Sync() error {
 }
 
 func (w *dailyWriter) Close() error {
+	w.maintenanceWG.Wait()
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.file == nil {
@@ -66,22 +120,244 @@ func (w *dailyWriter) Close() error {
 }
 
 func (w *dailyWriter) open(now time.Time) error {
-	day := now.Format(dateLayout)
-	dir := filepath.Join(w.rootDir, day)
+	day := now.In(w.location).Format(dateLayout)
+	part, err := w.latestPart(day)
+	if err != nil {
+		return err
+	}
+	return w.openPart(day, part)
+}
+
+func (w *dailyWriter) openPart(day string, part int) error {
+	dir := filepath.Join(w.rootDir, day[:7])
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create log directory %q: %w", dir, err)
 	}
 
-	path := filepath.Join(dir, w.module+".log")
+	path := filepath.Join(dir, logFileName(day, w.module, part))
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open log file %q: %w", path, err)
 	}
-
-	if w.file != nil {
-		_ = w.file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return fmt.Errorf("stat log file %q: %w", path, err)
 	}
+
+	previous := w.file
 	w.file = file
 	w.day = day
+	w.part = part
+	w.size = info.Size()
+	if previous != nil {
+		_ = previous.Close()
+	}
 	return nil
+}
+
+func (w *dailyWriter) latestPart(day string) (int, error) {
+	dir := filepath.Join(w.rootDir, day[:7])
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read log directory %q: %w", dir, err)
+	}
+
+	prefix := day + "_" + w.module
+	latest := -1
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		part, ok := parsePart(entry.Name(), prefix)
+		if ok && part > latest {
+			latest = part
+		}
+	}
+	if latest < 0 {
+		return 0, nil
+	}
+
+	info, err := os.Stat(filepath.Join(dir, logFileName(day, w.module, latest)))
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if w.maxSizeBytes > 0 && info.Size() >= w.maxSizeBytes {
+		return latest + 1, nil
+	}
+	return latest, nil
+}
+
+func parsePart(name, prefix string) (int, bool) {
+	if name == prefix+".log" {
+		return 0, true
+	}
+	rest, ok := strings.CutPrefix(name, prefix+".")
+	if !ok || !strings.HasSuffix(rest, ".log") {
+		return 0, false
+	}
+	digits := strings.TrimSuffix(rest, ".log")
+	part, err := strconv.Atoi(digits)
+	if err != nil || part < 1 {
+		return 0, false
+	}
+	return part, true
+}
+
+func logFileName(day, module string, part int) string {
+	base := day + "_" + module
+	if part == 0 {
+		return base + ".log"
+	}
+	return base + "." + strconv.Itoa(part) + ".log"
+}
+
+func (w *dailyWriter) startMaintenance(now time.Time) {
+	if w.maxAgeDays <= 0 && !w.compress {
+		return
+	}
+	if !w.maintaining.CompareAndSwap(false, true) {
+		return
+	}
+
+	w.maintenanceWG.Add(1)
+	go func() {
+		defer w.maintenanceWG.Done()
+		defer w.maintaining.Store(false)
+		w.maintain(now)
+	}()
+}
+
+func (w *dailyWriter) maintain(now time.Time) {
+	today := startOfDay(now, w.location)
+	cutoff := today.AddDate(0, 0, -w.maxAgeDays)
+
+	err := filepath.WalkDir(w.rootDir, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+
+		fileDate, compressed, ok := w.matchFile(entry.Name())
+		if !ok {
+			return nil
+		}
+		if w.maxAgeDays > 0 && fileDate.Before(cutoff) {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				reportMaintenanceError(path, err)
+			}
+			return nil
+		}
+		if w.compress && !compressed && fileDate.Before(today) {
+			if err := gzipFile(path); err != nil {
+				reportMaintenanceError(path, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		reportMaintenanceError(w.rootDir, err)
+	}
+}
+
+func (w *dailyWriter) matchFile(name string) (time.Time, bool, bool) {
+	if len(name) < len(dateLayout)+len(w.module)+5 {
+		return time.Time{}, false, false
+	}
+	fileDate, err := time.ParseInLocation(dateLayout, name[:len(dateLayout)], w.location)
+	if err != nil {
+		return time.Time{}, false, false
+	}
+
+	rest, ok := strings.CutPrefix(name[len(dateLayout):], "_"+w.module)
+	if !ok {
+		return time.Time{}, false, false
+	}
+	compressed := false
+	if strings.HasSuffix(rest, ".gz") {
+		compressed = true
+		rest = strings.TrimSuffix(rest, ".gz")
+	}
+	if rest == ".log" {
+		return fileDate, compressed, true
+	}
+	if strings.HasPrefix(rest, ".") && strings.HasSuffix(rest, ".log") {
+		digits := strings.TrimSuffix(strings.TrimPrefix(rest, "."), ".log")
+		if _, err := strconv.Atoi(digits); err == nil {
+			return fileDate, compressed, true
+		}
+	}
+	return time.Time{}, false, false
+}
+
+func gzipFile(path string) error {
+	gzPath := path + ".gz"
+	if _, err := os.Stat(gzPath); err == nil {
+		return os.Remove(path)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	src, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+
+	info, err := src.Stat()
+	if err != nil {
+		_ = src.Close()
+		return err
+	}
+
+	tmpPath := gzPath + ".tmp"
+	dst, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		_ = src.Close()
+		return err
+	}
+
+	gz := gzip.NewWriter(dst)
+	_, copyErr := io.Copy(gz, src)
+	gzipErr := gz.Close()
+	closeErr := dst.Close()
+	sourceErr := src.Close()
+	if err := firstError(copyErr, gzipErr, closeErr, sourceErr); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Chtimes(tmpPath, info.ModTime(), info.ModTime()); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, gzPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return os.Remove(path)
+}
+
+func firstError(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func startOfDay(now time.Time, location *time.Location) time.Time {
+	local := now.In(location)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location)
+}
+
+func reportMaintenanceError(path string, err error) {
+	fmt.Fprintf(os.Stderr, "logger maintenance %s: %v\n", path, err)
 }
