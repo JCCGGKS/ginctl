@@ -25,13 +25,11 @@ const (
 )
 
 // Business codes are independent of HTTP status so clients can branch on one
-// stable namespace even as transport details change.
+// stable namespace even as transport details change. Add more codes here as
+// the API grows.
 const (
 	CodeBadRequest   = 40000
 	CodeUnauthorized = 40100
-	CodeForbidden    = 40300
-	CodeNotFound     = 40400
-	CodeConflict     = 40900
 	CodeInternal     = 50000
 )
 
@@ -66,9 +64,6 @@ func BadRequest(msg string) *AppError { return NewAppError(http.StatusBadRequest
 func Unauthorized(msg string) *AppError {
 	return NewAppError(http.StatusUnauthorized, CodeUnauthorized, msg)
 }
-func Forbidden(msg string) *AppError { return NewAppError(http.StatusForbidden, CodeForbidden, msg) }
-func NotFound(msg string) *AppError  { return NewAppError(http.StatusNotFound, CodeNotFound, msg) }
-func Conflict(msg string) *AppError  { return NewAppError(http.StatusConflict, CodeConflict, msg) }
 func Internal(msg string) *AppError {
 	return NewAppError(http.StatusInternalServerError, CodeInternal, msg)
 }

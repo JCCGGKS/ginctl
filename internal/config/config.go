@@ -55,15 +55,6 @@ type LogConf struct {
 	Format string `mapstructure:"format"`
 }
 
-// MustLoad loads the config or panics. Use at startup only.
-func MustLoad(path string) Config {
-	c, err := Load(path)
-	if err != nil {
-		panic(err)
-	}
-	return c
-}
-
 // Load applies defaults, reads the YAML file at path, then overlays any
 // matching environment variables.
 func Load(path string) (Config, error) {

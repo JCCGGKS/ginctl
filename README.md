@@ -86,5 +86,5 @@ The demo user is seeded by the in-memory DAO with a bcrypt hash
 ## Response contract
 
 Every JSON endpoint returns `{code,msg,data,request_id,timestamp}`. `code=0`
-means success; business codes are independent of HTTP status
-(`40000/40100/40300/40400/40900/50000`).
+means success; business codes are independent of HTTP status (e.g. `40100` for
+unauthorized, `50000` for internal errors).
