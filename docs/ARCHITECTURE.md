@@ -42,8 +42,9 @@ logx remain the go-zero-bound pieces.
 ## 3. Migrated into this skeleton
 
 Layering & boundaries · unified response + typed error · business constructor
-pattern · ServiceContext DI · JWT auth + claims-in-context · zap structured
-logging · interface-based UserDAO (in-memory) + bcrypt login · pagination
+pattern · ServiceContext DI · JWT auth + claims-in-context · per-module zap
+logging with request-id correlation and daily rotation · interface-based
+UserDAO (in-memory) + bcrypt login · pagination
 normalization · viper config (per-env file + defaults + env overrides) ·
 graceful shutdown.
 
@@ -57,11 +58,11 @@ Redis aggregation + async flush · concrete SQL/schema.
 
 Few dependencies (gin + jwt + viper + zap) · thin handler / thick business /
 cross-cutting middleware · interface-based DAO · one response contract · deps
-centralized in svc · observability (request id + structured access log + panic
-guard + 5xx error logs) · externalized config with defaults + env overrides and
-startup validation · login rate limiting + request-body limits + explicit proxy
-trust · business errors decoupled from HTTP status · graceful shutdown · runs
-with zero external infrastructure in dev/test.
+centralized in svc · observability (request id + app/business/gorm/access
+logs + panic guard + 5xx error logs) · externalized config with defaults + env
+overrides and startup validation · login rate limiting + request-body limits +
+explicit proxy trust · business errors decoupled from HTTP status · graceful
+shutdown · runs with zero external infrastructure in dev/test.
 
 ## 6. Request flows
 

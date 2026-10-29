@@ -9,10 +9,12 @@ import (
 	"errors"
 	"fmt"
 
+	"gin-scaffold/infra/logger"
 	"gin-scaffold/internal/dao"
 	"gin-scaffold/internal/schema"
 	"gin-scaffold/internal/svc"
 
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -41,19 +43,34 @@ func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, e
 	if err != nil {
 		if errors.Is(err, dao.ErrUserNotFound) {
 			_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(req.Password))
+			logger.Business().Warn(l.ctx, "login rejected",
+				zap.String("username", req.Username),
+				zap.String("reason", "invalid_credentials"),
+			)
 			return nil, ErrInvalidCredentials
 		}
+		logger.Business().Error(l.ctx, "login user lookup failed", zap.String("username", req.Username), zap.Error(err))
 		return nil, fmt.Errorf("query user: %w", err)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		logger.Business().Warn(l.ctx, "login rejected",
+			zap.String("username", req.Username),
+			zap.String("reason", "invalid_credentials"),
+		)
 		return nil, ErrInvalidCredentials
 	}
 
 	accessToken, expiresAt, err := l.svcCtx.TokenManager.Issue(user.ID, user.Username)
 	if err != nil {
+		logger.Business().Error(l.ctx, "login token issue failed", zap.Uint64("user_id", user.ID), zap.Error(err))
 		return nil, fmt.Errorf("issue token: %w", err)
 	}
+
+	logger.Business().Info(l.ctx, "login succeeded",
+		zap.Uint64("user_id", user.ID),
+		zap.String("username", user.Username),
+	)
 
 	return &schema.LoginResponse{
 		AccessToken:     accessToken,

@@ -3,6 +3,7 @@
 package svc
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"time"
@@ -40,7 +41,7 @@ func NewServiceContext(c *config.Config, env string) (*ServiceContext, error) {
 
 	var userDAO dao.UserDAO
 	if env == "prod" {
-		logger.Warn("using in-memory user DAO in production; no demo user is seeded; wire a real DAO before deployment")
+		logger.App().Warn(context.Background(), "using in-memory user DAO in production; no demo user is seeded; wire a real DAO before deployment")
 		userDAO = memory.NewUserDAO()
 	} else {
 		userDAO = memory.NewDemoUserDAO()

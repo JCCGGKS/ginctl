@@ -14,10 +14,9 @@ func Recovery() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Error("panic recovered",
+				logger.App().Error(c.Request.Context(), "panic recovered",
 					zap.Any("error", r),
 					zap.String("path", c.Request.URL.Path),
-					zap.String("request_id", response.RequestID(c)),
 				)
 				response.Fail(c, response.Internal("internal server error"))
 				c.Abort()

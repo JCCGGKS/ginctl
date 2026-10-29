@@ -8,7 +8,7 @@ own storage.
 ## What it includes
 
 - Graceful startup/shutdown: signal-based shutdown plus `http.Server` timeouts.
-- Logging: `go.uber.org/zap` configured from `log.level` and `log.format`.
+- Logging: per-module zap loggers, daily rotation, and `request_id` correlation.
 - JWT: login endpoint, Bearer auth middleware, and a protected `/api/v1/me`.
 - Unified response envelope + typed `AppError` with business error codes.
 - Login rate limiting, request-body limits, and proxy-aware client IP handling.
@@ -32,7 +32,8 @@ internal/
   model/                  storage-side structs (db tags)
   schema/                 request/response DTOs
 infra/
-  logger/                 zap level/format setup
+  logger/                 per-module zap loggers + daily rotation + gorm adapter
+  requestid/              request id context carrier
   response/               unified envelope + AppError + business codes
   token/                  JWT issue/parse (HS256 + custom claims)
   pagination/             page/size + id cursor normalization
@@ -76,6 +77,40 @@ the same precedence and can be overridden by env vars, e.g. `MYSQL_HOST`,
 `MYSQL_PASSWORD`, `REDIS_HOST`, `REDIS_PASSWORD`. `config.MySQLConf.DSN()`
 returns a go-sql-driver DSN and `config.RedisConf.Addr()` returns `host:port`
 for wiring real clients in `internal/svc`.
+
+## Logging
+
+`log.rootDir` is the only log path setting. The service creates one zap logger
+per module and writes one file per module per local day:
+
+```
+logs/2026-10-29/app.log
+logs/2026-10-29/business.log
+logs/2026-10-29/gorm.log
+logs/2026-10-29/access.log
+```
+
+- `app`: startup, shutdown, server errors, panic recovery, and unhandled 5xx.
+- `business`: login success/rejection and other business events.
+- `gorm`: SQL, rows affected, elapsed time, slow queries, and query failures.
+- `access`: one structured line per HTTP request.
+
+`log.level` filters all modules. `log.format` selects `json` or `console` for
+the file encoder. The request-id middleware stores the id in the request
+`context.Context`, and every module logger automatically adds `request_id`, so
+one request can be followed across business, SQL, and access logs.
+
+Wire the GORM module logger when a database is added:
+
+```go
+db, err := gorm.Open(mysql.Open(cfg.MySQL.DSN()), &gorm.Config{
+    Logger: logger.NewGormLogger(200 * time.Millisecond),
+})
+```
+
+Pass the request context with `db.WithContext(ctx)` so SQL logs carry the same
+`request_id`. For SQL containing sensitive parameters, also enable GORM's
+`ParameterizedQueries: true` option.
 
 ## Auth demo
 

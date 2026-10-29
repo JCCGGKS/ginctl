@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"gin-scaffold/infra/logger"
+	"gin-scaffold/infra/requestid"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -108,11 +109,11 @@ func Fail(c *gin.Context, err error) {
 		appErr = Internal("internal server error")
 		fields := errorFields(c, appErr)
 		fields = append(fields, zap.Error(err))
-		logger.Error("unhandled error", fields...)
+		logger.App().Error(c.Request.Context(), "unhandled error", fields...)
 	} else if appErr.HTTPStatus >= http.StatusInternalServerError {
 		fields := errorFields(c, appErr)
 		fields = append(fields, zap.Error(err))
-		logger.Error("request failed", fields...)
+		logger.App().Error(c.Request.Context(), "request failed", fields...)
 	}
 
 	c.Abort()
@@ -126,7 +127,6 @@ func Fail(c *gin.Context, err error) {
 
 func errorFields(c *gin.Context, appErr *AppError) []zap.Field {
 	return []zap.Field{
-		zap.String("request_id", RequestID(c)),
 		zap.String("method", c.Request.Method),
 		zap.String("path", c.Request.URL.Path),
 		zap.Int("status", appErr.HTTPStatus),
@@ -140,7 +140,15 @@ func errorFields(c *gin.Context, appErr *AppError) []zap.Field {
 func SetRequestID(c *gin.Context, id string) { c.Set(ctxRequestIDKey, id) }
 
 // RequestID reads the request id, or "" if unset.
-func RequestID(c *gin.Context) string { return getString(c, ctxRequestIDKey) }
+func RequestID(c *gin.Context) string {
+	if id := getString(c, ctxRequestIDKey); id != "" {
+		return id
+	}
+	if c.Request == nil {
+		return ""
+	}
+	return requestid.FromContext(c.Request.Context())
+}
 
 func getString(c *gin.Context, key string) string {
 	if v, ok := c.Get(key); ok {

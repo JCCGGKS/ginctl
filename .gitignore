@@ -28,6 +28,9 @@ go.work.sum
 .env
 etc/config_local.yaml
 
+# Runtime logs
+logs/
+
 # Editor/IDE
 # .idea/
 # .vscode/

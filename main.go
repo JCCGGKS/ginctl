@@ -22,8 +22,12 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
-		logger.Error("server exited with error", zap.Error(err))
+	err := run()
+	if err != nil {
+		logger.App().Error(context.Background(), "server exited with error", zap.Error(err))
+	}
+	logger.Close()
+	if err != nil {
 		os.Exit(1)
 	}
 }
@@ -46,9 +50,11 @@ func run() error {
 		return err
 	}
 
-	logger.Init(cfg.Log.Level, cfg.Log.Format)
-	defer logger.Sync()
-	logger.Info("config loaded", zap.String("env", *env), zap.String("file", configFile))
+	if err := logger.Init(cfg.Log.RootDir, cfg.Log.Level, cfg.Log.Format); err != nil {
+		return fmt.Errorf("init logger: %w", err)
+	}
+	bg := context.Background()
+	logger.App().Info(bg, "config loaded", zap.String("env", *env), zap.String("file", configFile))
 
 	if err := cfg.Validate(*env); err != nil {
 		return fmt.Errorf("validate config: %w", err)
@@ -77,7 +83,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("server starting", zap.String("addr", addr), zap.String("mode", cfg.Server.Mode))
+		logger.App().Info(bg, "server starting", zap.String("addr", addr), zap.String("mode", cfg.Server.Mode))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -86,20 +92,20 @@ func run() error {
 	var serveErr error
 	select {
 	case serveErr = <-errCh:
-		logger.Error("server error", zap.Error(serveErr))
+		logger.App().Error(bg, "server error", zap.Error(serveErr))
 	case <-ctx.Done():
-		logger.Info("server shutting down gracefully")
+		logger.App().Info(bg, "server shutting down gracefully")
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Server.ShutdownTimeoutSeconds)*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("graceful shutdown failed", zap.Error(err))
+		logger.App().Error(bg, "graceful shutdown failed", zap.Error(err))
 		if serveErr == nil {
 			serveErr = err
 		}
 	}
-	logger.Info("server stopped")
+	logger.App().Info(bg, "server stopped")
 
 	return serveErr
 }

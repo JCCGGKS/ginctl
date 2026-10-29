@@ -2,6 +2,8 @@
 package router
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
@@ -29,7 +31,7 @@ func New(svcCtx *svc.ServiceContext) *gin.Engine {
 		trustedProxies = nil
 	}
 	if err := engine.SetTrustedProxies(trustedProxies); err != nil {
-		logger.Error("invalid trusted proxies; disabling proxy trust", zap.Error(err))
+		logger.App().Error(context.Background(), "invalid trusted proxies; disabling proxy trust", zap.Error(err))
 		_ = engine.SetTrustedProxies(nil)
 	}
 

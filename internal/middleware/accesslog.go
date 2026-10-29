@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"gin-scaffold/infra/logger"
-	"gin-scaffold/infra/response"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -23,12 +22,11 @@ func AccessLog() gin.HandlerFunc {
 			zap.Int("status", c.Writer.Status()),
 			zap.Int64("latency_ms", time.Since(start).Milliseconds()),
 			zap.String("client_ip", c.ClientIP()),
-			zap.String("request_id", response.RequestID(c)),
 		}
 		if claims := CurrentClaims(c); claims != nil {
 			fields = append(fields, zap.Uint64("user_id", claims.UserID))
 		}
 
-		logger.Info("access", fields...)
+		logger.Access().Info(c.Request.Context(), "access", fields...)
 	}
 }

@@ -57,8 +57,9 @@ type AuthConf struct {
 }
 
 type LogConf struct {
-	Level  string `mapstructure:"level"`
-	Format string `mapstructure:"format"`
+	RootDir string `mapstructure:"rootDir"`
+	Level   string `mapstructure:"level"`
+	Format  string `mapstructure:"format"`
 }
 
 // MySQLConf holds connection-pool settings for a MySQL instance. DSN builds the
@@ -159,6 +160,9 @@ func (c Config) Validate(env string) error {
 	default:
 		return fmt.Errorf("log.format must be console or json, got %q", c.Log.Format)
 	}
+	if strings.TrimSpace(c.Log.RootDir) == "" {
+		return errors.New("log.rootDir is required")
+	}
 	return nil
 }
 
@@ -215,6 +219,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.loginRateLimitPerMinute", 10)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "console")
+	v.SetDefault("log.rootDir", "logs")
 	v.SetDefault("mysql.host", "127.0.0.1")
 	v.SetDefault("mysql.port", 3306)
 	v.SetDefault("mysql.user", "root")

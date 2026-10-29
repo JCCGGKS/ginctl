@@ -19,6 +19,7 @@ auth:
   loginRateLimitPerMinute: 10
 
 log:
+  rootDir: logs
   level: info
   format: json
 
