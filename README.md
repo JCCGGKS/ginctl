@@ -38,6 +38,7 @@ infra/
   token/                  JWT issue/parse (HS256 + custom claims)
   pagination/             page/size + id cursor normalization
 docs/ARCHITECTURE.md      design rationale
+docs/MODULES.zh-CN.md     module-by-module review guide (Chinese)
 ```
 
 ## Layer rule of thumb
