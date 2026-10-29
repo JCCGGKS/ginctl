@@ -27,7 +27,7 @@ func New(svcCtx *svc.ServiceContext) *gin.Engine {
 		middleware.Recovery(),
 	)
 
-	registerCustomRoutes(engine, svcCtx)
+	registerRoutes(engine, svcCtx)
 
 	return engine
 }

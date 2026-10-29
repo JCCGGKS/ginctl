@@ -3,8 +3,6 @@
 // Loading is handled by spf13/viper, which gives layered configuration with a
 // clear precedence: defaults < config file < environment variables. Env keys
 // have no prefix (e.g. SERVER_PORT=9090 overrides server.port).
-// Optional hot-reload is available via Watch. The Load/MustLoad API is
-// unchanged, so the rest of the app does not know viper sits underneath.
 package config
 
 import (
@@ -12,11 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gin-scaffold/pkg/logger"
-
-	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
 )
 
 // DefaultEnv is the environment assumed when the caller supplies none.
@@ -78,27 +72,6 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	return unmarshal(v)
-}
-
-// Watch hot-reloads the file and calls onChange with the fresh Config on every
-// edit. Opt-in: call it from main if you want live config. Note that values
-// already copied by value (e.g. into ServiceContext) keep their old value
-// unless you re-read them inside onChange.
-func Watch(path string, onChange func(Config)) error {
-	v, err := newViper(path)
-	if err != nil {
-		return err
-	}
-	v.OnConfigChange(func(e fsnotify.Event) {
-		c, err := unmarshal(v)
-		if err != nil {
-			logger.Error("reload config failed", zap.String("file", e.Name), zap.Error(err))
-			return
-		}
-		onChange(c)
-	})
-	v.WatchConfig()
-	return nil
 }
 
 func newViper(path string) (*viper.Viper, error) {
