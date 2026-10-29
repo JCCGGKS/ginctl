@@ -8,10 +8,10 @@ import (
 	"context"
 	"errors"
 
+	"gin-scaffold/infra/response"
 	"gin-scaffold/internal/dao"
 	"gin-scaffold/internal/schema"
 	"gin-scaffold/internal/svc"
-	"gin-scaffold/pkg/response"
 
 	"golang.org/x/crypto/bcrypt"
 )

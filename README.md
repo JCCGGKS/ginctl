@@ -29,7 +29,7 @@ internal/
   dao/                    UserDAO interface + memory/ implementation
   model/                  storage-side structs (db tags)
   schema/                 request/response DTOs
-pkg/
+infra/
   logger/                 zap level/format setup
   response/               unified envelope + AppError + business codes
   token/                  JWT issue/parse (HS256 + custom claims)
@@ -46,7 +46,7 @@ docs/ARCHITECTURE.md      design rationale
 | dao | "how is data stored/queried?" | parse HTTP / decide policy |
 | middleware | "what applies across routes?" | hold business rules |
 | svc | "how are deps assembled?" | hold business logic |
-| pkg/* | "what generic thing is reused?" | import internal/* |
+| infra/* | "what generic thing is reused?" | import internal/* |
 
 ## Run
 

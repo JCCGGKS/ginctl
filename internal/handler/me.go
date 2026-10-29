@@ -1,9 +1,9 @@
 package handler
 
 import (
+	"gin-scaffold/infra/response"
 	"gin-scaffold/internal/middleware"
 	"gin-scaffold/internal/schema"
-	"gin-scaffold/pkg/response"
 
 	"github.com/gin-gonic/gin"
 )

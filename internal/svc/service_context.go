@@ -5,10 +5,10 @@ package svc
 import (
 	"time"
 
+	"gin-scaffold/infra/token"
 	"gin-scaffold/internal/config"
 	"gin-scaffold/internal/dao"
 	"gin-scaffold/internal/dao/memory"
-	"gin-scaffold/pkg/token"
 )
 
 // ServiceContext is the dependency-injection container. Construct heavy deps

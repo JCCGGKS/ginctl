@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"gin-scaffold/pkg/logger"
-	"gin-scaffold/pkg/response"
+	"gin-scaffold/infra/logger"
+	"gin-scaffold/infra/response"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

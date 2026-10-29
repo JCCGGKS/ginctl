@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"time"
 
-	"gin-scaffold/pkg/logger"
+	"gin-scaffold/infra/logger"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

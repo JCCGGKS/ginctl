@@ -5,10 +5,10 @@ package handler
 import (
 	"github.com/gin-gonic/gin"
 
+	"gin-scaffold/infra/response"
 	"gin-scaffold/internal/logic"
 	"gin-scaffold/internal/schema"
 	"gin-scaffold/internal/svc"
-	"gin-scaffold/pkg/response"
 )
 
 // AuthHandler holds shared dependencies for auth endpoints.

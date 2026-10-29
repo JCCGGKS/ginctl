@@ -13,10 +13,10 @@ import (
 	"syscall"
 	"time"
 
+	"gin-scaffold/infra/logger"
 	"gin-scaffold/internal/config"
 	"gin-scaffold/internal/router"
 	"gin-scaffold/internal/svc"
-	"gin-scaffold/pkg/logger"
 
 	"go.uber.org/zap"
 )

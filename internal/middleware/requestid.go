@@ -4,7 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 
-	"gin-scaffold/pkg/response"
+	"gin-scaffold/infra/response"
 
 	"github.com/gin-gonic/gin"
 )

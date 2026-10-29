@@ -4,8 +4,8 @@
 package middleware
 
 import (
-	"gin-scaffold/pkg/response"
-	"gin-scaffold/pkg/token"
+	"gin-scaffold/infra/response"
+	"gin-scaffold/infra/token"
 
 	"github.com/gin-gonic/gin"
 )

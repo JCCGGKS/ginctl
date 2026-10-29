@@ -4,9 +4,9 @@ package router
 import (
 	"github.com/gin-gonic/gin"
 
+	"gin-scaffold/infra/logger"
 	"gin-scaffold/internal/middleware"
 	"gin-scaffold/internal/svc"
-	"gin-scaffold/pkg/logger"
 )
 
 // New builds the gin engine with global middleware and all routes.

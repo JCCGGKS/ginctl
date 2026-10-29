@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"gin-scaffold/pkg/token"
+	"gin-scaffold/infra/token"
 
 	"github.com/gin-gonic/gin"
 )
