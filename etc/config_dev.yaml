@@ -3,6 +3,8 @@ server:
   host: 0.0.0.0
   port: 8080
   mode: debug                 # gin mode: debug | release | test
+  maxBodyBytes: 1048576       # request body cap (1 MiB)
+  trustedProxies: []          # e.g. ["10.0.0.0/8"]; empty disables X-Forwarded-For trust
   readTimeoutSeconds: 15
   writeTimeoutSeconds: 15
   readHeaderTimeoutSeconds: 5
@@ -12,6 +14,7 @@ server:
 auth:
   jwtSecret: dev-secret-change-me
   accessExpireSeconds: 900
+  loginRateLimitPerMinute: 10
 
 log:
   level: debug

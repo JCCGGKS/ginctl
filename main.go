@@ -50,7 +50,14 @@ func run() error {
 	defer logger.Sync()
 	logger.Info("config loaded", zap.String("env", *env), zap.String("file", configFile))
 
-	svcCtx := svc.NewServiceContext(&cfg)
+	if err := cfg.Validate(*env); err != nil {
+		return fmt.Errorf("validate config: %w", err)
+	}
+
+	svcCtx, err := svc.NewServiceContext(&cfg, *env)
+	if err != nil {
+		return fmt.Errorf("build service context: %w", err)
+	}
 	engine := router.New(svcCtx)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -62,6 +69,7 @@ func run() error {
 		ReadHeaderTimeout: time.Duration(cfg.Server.ReadHeaderTimeoutSeconds) * time.Second,
 		WriteTimeout:      time.Duration(cfg.Server.WriteTimeoutSeconds) * time.Second,
 		IdleTimeout:       time.Duration(cfg.Server.IdleTimeoutSeconds) * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -87,6 +95,9 @@ func run() error {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", zap.Error(err))
+		if serveErr == nil {
+			serveErr = err
+		}
 	}
 	logger.Info("server stopped")
 

@@ -11,6 +11,7 @@ own storage.
 - Logging: `go.uber.org/zap` configured from `log.level` and `log.format`.
 - JWT: login endpoint, Bearer auth middleware, and a protected `/api/v1/me`.
 - Unified response envelope + typed `AppError` with business error codes.
+- Login rate limiting, request-body limits, and proxy-aware client IP handling.
 - Interface-based data access: `internal/dao` contract + in-memory demo store.
 - Per-environment config files: `etc/config_<env>.yaml`.
 - MySQL & Redis config stubs: pool settings + `DSN()` / `Addr()` helpers.
@@ -24,7 +25,7 @@ internal/
   config/                 config structs + Load() + defaults (viper: defaults<file<env)
   svc/                    ServiceContext: dependency-injection container
   router/                 gin engine + global middleware + explicit routes
-  middleware/             requestid, accesslog, recovery, auth (JWT)
+  middleware/             requestid, bodylimit, accesslog, recovery, ratelimit, auth (JWT)
   handler/                health, auth login, me (thin HTTP adapters)
   business/                  auth login (business orchestration)
   dao/                    UserDAO interface + memory/ implementation
@@ -53,7 +54,7 @@ docs/ARCHITECTURE.md      design rationale
 
 ```bash
 go run .                  # defaults to dev -> etc/config_dev.yaml
-go run . -env prod        # etc/config_prod.yaml
+go run . -env prod        # requires AUTH_JWTSECRET (>=32 bytes)
 ENV=test go run .         # etc/config_test.yaml
 go run . -f etc/config_dev.yaml
 ```
@@ -90,10 +91,25 @@ curl -s http://127.0.0.1:8080/api/v1/me \
 The demo user is seeded by the in-memory DAO with a bcrypt hash
 (`admin` / `admin123`). Replace `internal/dao/memory` with a real `UserDAO`
 (MySQL/gorm) and it plugs into `internal/svc` without touching business. The
-`jwtSecret` is empty in prod and must be supplied via `AUTH_JWTSECRET`.
+`jwtSecret` is empty in prod and must be supplied via `AUTH_JWTSECRET`; the
+server refuses to start without it. Prod does not seed the demo user and uses
+an empty in-memory store until a real DAO is wired, so login returns 401 there
+by design.
+
+## Security defaults
+
+- `auth.loginRateLimitPerMinute` limits login attempts per client IP (default 10;
+  in-process, so use Redis/shared storage across multiple instances).
+- `server.maxBodyBytes` caps request bodies (default 1 MiB).
+- `server.trustedProxies` is empty by default, which disables `X-Forwarded-For`
+  trust. Set explicit CIDRs only for a known load balancer.
+- 404 and 405 responses use the same JSON envelope and business-code namespace
+  as other endpoints.
 
 ## Response contract
 
-Every JSON endpoint returns `{code,msg,data,request_id,timestamp}`. `code=0`
-means success; business codes are independent of HTTP status (e.g. `40100` for
-unauthorized, `50000` for internal errors).
+Every business JSON endpoint returns `{code,msg,data,request_id,timestamp}`.
+`code=0` means success; business codes are independent of HTTP status (e.g.
+`40100` for unauthorized, `40400` for not found, `42900` for rate limiting,
+`50000` for internal errors). `GET /healthz` is the deliberate exception: it
+returns a minimal `{status,time}` body for infrastructure probes.

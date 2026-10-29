@@ -3,8 +3,10 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"gin-scaffold/infra/logger"
+	"gin-scaffold/infra/response"
 	"gin-scaffold/internal/middleware"
 	"gin-scaffold/internal/svc"
 )
@@ -18,16 +20,41 @@ func New(svcCtx *svc.ServiceContext) *gin.Engine {
 	gin.DefaultErrorWriter = logger.Writer()
 
 	engine := gin.New()
+	engine.HandleMethodNotAllowed = true
 
-	// Global middleware: request id -> access log -> panic guard. Recovery is
-	// last so it wraps the handler chain; the others run for every request.
+	// Never trust X-Forwarded-* by default. Configure CIDRs for a known load
+	// balancer; an empty list makes ClientIP() use the remote socket address.
+	trustedProxies := svcCtx.Config.Server.TrustedProxies
+	if len(trustedProxies) == 0 {
+		trustedProxies = nil
+	}
+	if err := engine.SetTrustedProxies(trustedProxies); err != nil {
+		logger.Error("invalid trusted proxies; disabling proxy trust", zap.Error(err))
+		_ = engine.SetTrustedProxies(nil)
+	}
+
+	maxBodyBytes := svcCtx.Config.Server.MaxBodyBytes
+	if maxBodyBytes <= 0 {
+		maxBodyBytes = 1 << 20
+	}
+
+	// Global middleware: request id -> body limit -> access log -> panic guard.
+	// Recovery is last so it wraps the handler chain.
 	engine.Use(
 		middleware.RequestID(),
+		middleware.BodyLimit(maxBodyBytes),
 		middleware.AccessLog(),
 		middleware.Recovery(),
 	)
 
 	registerRoutes(engine, svcCtx)
+
+	engine.NoRoute(func(c *gin.Context) {
+		response.Fail(c, response.NotFound("resource not found"))
+	})
+	engine.NoMethod(func(c *gin.Context) {
+		response.Fail(c, response.MethodNotAllowed("method not allowed"))
+	})
 
 	return engine
 }

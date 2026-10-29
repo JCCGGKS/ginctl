@@ -6,6 +6,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -37,19 +38,22 @@ type Config struct {
 }
 
 type ServerConf struct {
-	Host                     string `mapstructure:"host"`
-	Port                     int    `mapstructure:"port"`
-	Mode                     string `mapstructure:"mode"`
-	ReadTimeoutSeconds       int    `mapstructure:"readTimeoutSeconds"`
-	WriteTimeoutSeconds      int    `mapstructure:"writeTimeoutSeconds"`
-	ReadHeaderTimeoutSeconds int    `mapstructure:"readHeaderTimeoutSeconds"`
-	IdleTimeoutSeconds       int    `mapstructure:"idleTimeoutSeconds"`
-	ShutdownTimeoutSeconds   int    `mapstructure:"shutdownTimeoutSeconds"`
+	Host                     string   `mapstructure:"host"`
+	Port                     int      `mapstructure:"port"`
+	Mode                     string   `mapstructure:"mode"`
+	MaxBodyBytes             int64    `mapstructure:"maxBodyBytes"`
+	TrustedProxies           []string `mapstructure:"trustedProxies"`
+	ReadTimeoutSeconds       int      `mapstructure:"readTimeoutSeconds"`
+	WriteTimeoutSeconds      int      `mapstructure:"writeTimeoutSeconds"`
+	ReadHeaderTimeoutSeconds int      `mapstructure:"readHeaderTimeoutSeconds"`
+	IdleTimeoutSeconds       int      `mapstructure:"idleTimeoutSeconds"`
+	ShutdownTimeoutSeconds   int      `mapstructure:"shutdownTimeoutSeconds"`
 }
 
 type AuthConf struct {
-	JWTSecret           string `mapstructure:"jwtSecret"`
-	AccessExpireSeconds int    `mapstructure:"accessExpireSeconds"`
+	JWTSecret               string `mapstructure:"jwtSecret"`
+	AccessExpireSeconds     int    `mapstructure:"accessExpireSeconds"`
+	LoginRateLimitPerMinute int    `mapstructure:"loginRateLimitPerMinute"`
 }
 
 type LogConf struct {
@@ -100,6 +104,64 @@ func (r RedisConf) Addr() string {
 	return fmt.Sprintf("%s:%d", r.Host, r.Port)
 }
 
+// Validate rejects configuration that would otherwise fail late at runtime.
+// env is the selected environment name, e.g. "dev", "test", or "prod".
+func (c Config) Validate(env string) error {
+	if c.Server.Port < 1 || c.Server.Port > 65535 {
+		return fmt.Errorf("server.port must be between 1 and 65535, got %d", c.Server.Port)
+	}
+	switch c.Server.Mode {
+	case "debug", "release", "test":
+	default:
+		return fmt.Errorf("server.mode must be debug, release, or test, got %q", c.Server.Mode)
+	}
+	if strings.EqualFold(env, "prod") && c.Server.Mode != "release" {
+		return fmt.Errorf("server.mode must be release in prod, got %q", c.Server.Mode)
+	}
+	if c.Server.MaxBodyBytes <= 0 {
+		return fmt.Errorf("server.maxBodyBytes must be positive, got %d", c.Server.MaxBodyBytes)
+	}
+	if c.Server.ReadTimeoutSeconds <= 0 {
+		return fmt.Errorf("server.readTimeoutSeconds must be positive, got %d", c.Server.ReadTimeoutSeconds)
+	}
+	if c.Server.WriteTimeoutSeconds <= 0 {
+		return fmt.Errorf("server.writeTimeoutSeconds must be positive, got %d", c.Server.WriteTimeoutSeconds)
+	}
+	if c.Server.ReadHeaderTimeoutSeconds <= 0 {
+		return fmt.Errorf("server.readHeaderTimeoutSeconds must be positive, got %d", c.Server.ReadHeaderTimeoutSeconds)
+	}
+	if c.Server.IdleTimeoutSeconds <= 0 {
+		return fmt.Errorf("server.idleTimeoutSeconds must be positive, got %d", c.Server.IdleTimeoutSeconds)
+	}
+	if c.Server.ShutdownTimeoutSeconds <= 0 {
+		return fmt.Errorf("server.shutdownTimeoutSeconds must be positive, got %d", c.Server.ShutdownTimeoutSeconds)
+	}
+	secret := strings.TrimSpace(c.Auth.JWTSecret)
+	if secret == "" {
+		return errors.New("auth.jwtSecret is required (set AUTH_JWTSECRET)")
+	}
+	if strings.EqualFold(env, "prod") && len(secret) < 32 {
+		return errors.New("auth.jwtSecret must be at least 32 bytes in prod")
+	}
+	if c.Auth.AccessExpireSeconds <= 0 {
+		return fmt.Errorf("auth.accessExpireSeconds must be positive, got %d", c.Auth.AccessExpireSeconds)
+	}
+	if c.Auth.LoginRateLimitPerMinute < 0 {
+		return fmt.Errorf("auth.loginRateLimitPerMinute must not be negative, got %d", c.Auth.LoginRateLimitPerMinute)
+	}
+	switch strings.ToLower(c.Log.Level) {
+	case "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("log.level must be debug, info, warn, or error, got %q", c.Log.Level)
+	}
+	switch strings.ToLower(c.Log.Format) {
+	case "console", "json":
+	default:
+		return fmt.Errorf("log.format must be console or json, got %q", c.Log.Format)
+	}
+	return nil
+}
+
 // Load applies defaults, reads the YAML file at path, then overlays any
 // matching environment variables.
 func Load(path string) (Config, error) {
@@ -142,6 +204,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.host", "0.0.0.0")
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("server.mode", "debug")
+	v.SetDefault("server.maxBodyBytes", int64(1<<20))
 	v.SetDefault("server.readTimeoutSeconds", 15)
 	v.SetDefault("server.writeTimeoutSeconds", 15)
 	v.SetDefault("server.readHeaderTimeoutSeconds", 5)
@@ -149,6 +212,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.shutdownTimeoutSeconds", 10)
 	v.SetDefault("auth.jwtSecret", "")
 	v.SetDefault("auth.accessExpireSeconds", 900)
+	v.SetDefault("auth.loginRateLimitPerMinute", 10)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "console")
 	v.SetDefault("mysql.host", "127.0.0.1")

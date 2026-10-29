@@ -3,8 +3,11 @@
 package svc
 
 import (
+	"errors"
+	"strings"
 	"time"
 
+	"gin-scaffold/infra/logger"
 	"gin-scaffold/infra/token"
 	"gin-scaffold/internal/config"
 	"gin-scaffold/internal/dao"
@@ -19,11 +22,33 @@ type ServiceContext struct {
 	UserDAO      dao.UserDAO
 }
 
-// NewServiceContext assembles all dependencies from config.
-func NewServiceContext(c *config.Config) *ServiceContext {
+// NewServiceContext assembles all dependencies from config. It returns an error
+// instead of starting a process with missing critical configuration.
+func NewServiceContext(c *config.Config, env string) (*ServiceContext, error) {
+	if c == nil {
+		return nil, errors.New("config is nil")
+	}
+	secret := strings.TrimSpace(c.Auth.JWTSecret)
+	if secret == "" {
+		return nil, errors.New("auth.jwtSecret is required")
+	}
+
+	env = strings.ToLower(strings.TrimSpace(env))
+	if env == "" {
+		env = config.DefaultEnv
+	}
+
+	var userDAO dao.UserDAO
+	if env == "prod" {
+		logger.Warn("using in-memory user DAO in production; no demo user is seeded; wire a real DAO before deployment")
+		userDAO = memory.NewUserDAO()
+	} else {
+		userDAO = memory.NewDemoUserDAO()
+	}
+
 	return &ServiceContext{
 		Config:       c,
-		TokenManager: token.NewManager(c.Auth.JWTSecret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
-		UserDAO:      memory.NewUserDAO(),
-	}
+		TokenManager: token.NewManager(secret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
+		UserDAO:      userDAO,
+	}, nil
 }

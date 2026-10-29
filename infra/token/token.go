@@ -61,12 +61,17 @@ func (m *Manager) ParseInto(tokenString string, claims jwt.Claims) error {
 		return errors.New("jwt secret is not configured")
 	}
 
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
-		if t.Method != jwt.SigningMethodHS256 {
-			return nil, errors.New("unexpected signing method")
-		}
-		return m.secret, nil
-	})
+	token, err := jwt.ParseWithClaims(
+		tokenString,
+		claims,
+		func(t *jwt.Token) (any, error) {
+			if t.Method != jwt.SigningMethodHS256 {
+				return nil, errors.New("unexpected signing method")
+			}
+			return m.secret, nil
+		},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+	)
 	if err != nil {
 		return err
 	}
@@ -80,9 +85,9 @@ func (m *Manager) ParseInto(tokenString string, claims jwt.Claims) error {
 // It returns "" when the header is not in the expected "Bearer <token>" form.
 func ExtractBearer(header string) string {
 	header = strings.TrimSpace(header)
-	const prefix = "Bearer "
-	if !strings.HasPrefix(header, prefix) {
+	parts := strings.SplitN(header, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 		return ""
 	}
-	return strings.TrimSpace(strings.TrimPrefix(header, prefix))
+	return strings.TrimSpace(parts[1])
 }

@@ -3,6 +3,10 @@
 package handler
 
 import (
+	"context"
+	"errors"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"gin-scaffold/infra/response"
@@ -25,13 +29,25 @@ func NewAuthHandler(svcCtx *svc.ServiceContext) *AuthHandler {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req schema.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, response.BadRequest(err.Error()))
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			response.Fail(c, response.PayloadTooLarge("request body too large"))
+			return
+		}
+		response.Fail(c, response.BadRequest("invalid request body"))
 		return
 	}
 
 	resp, err := business.NewAuthBusiness(c.Request.Context(), h.svcCtx).Login(&req)
 	if err != nil {
-		response.Fail(c, err)
+		switch {
+		case errors.Is(err, business.ErrInvalidCredentials):
+			response.Fail(c, response.Unauthorized("username or password is invalid"))
+		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+			response.Fail(c, response.Timeout("request cancelled"))
+		default:
+			response.Fail(c, err)
+		}
 		return
 	}
 

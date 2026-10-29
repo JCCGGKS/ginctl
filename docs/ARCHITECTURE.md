@@ -35,10 +35,9 @@ source of study is the `mysurl1` go-zero short-link service; the goal was to
 | `logx` | logging | `go.uber.org/zap` |
 | `stat`, `syncx.SingleFlight` | metrics / dedup | business-specific, add as needed |
 
-Key insight: handlers and middleware use **standard `net/http` signatures**
-(go-zero `Middleware` is just `func(http.HandlerFunc) http.HandlerFunc`), so the
-middleware *ideas* port almost verbatim. Only routing, binding, config loading,
-sqlx and logx are truly go-zero-bound.
+Handler and middleware *ideas* port directly, but the concrete signatures are
+gin-specific (`gin.HandlerFunc`). Routing, binding, config loading, sqlx and
+logx remain the go-zero-bound pieces.
 
 ## 3. Migrated into this skeleton
 
@@ -59,34 +58,41 @@ Redis aggregation + async flush · concrete SQL/schema.
 Few dependencies (gin + jwt + viper + zap) · thin handler / thick business /
 cross-cutting middleware · interface-based DAO · one response contract · deps
 centralized in svc · observability (request id + structured access log + panic
-guard) · externalized config with defaults + env overrides · graceful shutdown ·
-runs with zero external infrastructure.
+guard + 5xx error logs) · externalized config with defaults + env overrides and
+startup validation · login rate limiting + request-body limits + explicit proxy
+trust · business errors decoupled from HTTP status · graceful shutdown · runs
+with zero external infrastructure in dev/test.
 
 ## 6. Request flows
 
 Public liveness probe (`GET /healthz`):
 
 ```
-RequestID -> AccessLog -> Recovery -> handler.Health -> 200 {status:"ok"}
+RequestID -> BodyLimit -> AccessLog -> Recovery -> handler.Health
+  -> 200 {status:"ok"}
 ```
 
 Login and protected read (`POST /api/v1/login`, `GET /api/v1/me`):
 
 ```
 POST /api/v1/login:
-  RequestID -> AccessLog -> Recovery -> handler.Login.bind
-    -> business.Login (dao lookup + bcrypt compare) -> token.Issue
+  RequestID -> BodyLimit -> AccessLog -> Recovery -> RateLimit -> handler.Login.bind
+    -> business.Login (dao lookup + timing-equalized bcrypt compare) -> token.Issue
     -> response.OK {access_token, user}
 
 GET /api/v1/me:
-  RequestID -> AccessLog -> Recovery -> middleware.Auth (verify Bearer + set claims)
+  RequestID -> BodyLimit -> AccessLog -> Recovery -> middleware.Auth (verify Bearer + set claims)
     -> handler.Me (CurrentClaims) -> response.OK {id, username}
 <- AccessLog logs status + request_id (+ user_id when authenticated)
+
+Unknown route / wrong method:
+  RequestID -> BodyLimit -> AccessLog -> Recovery -> NoRoute/NoMethod
+    -> response.Fail (40400 / 40500)
 ```
 
 ## 7. Roadmap
 
-- **M0 (done):** runnable skeleton: health, bcrypt login via in-memory DAO, JWT middleware, zap.
+- **M0 (done):** runnable skeleton: health, bcrypt login via in-memory DAO, JWT middleware, zap, config validation, rate limiting, unified 404/405, body limits.
 - **M1:** real MySQL DAO, user table.
 - **M2:** refresh-token issue/rotate/logout.
 - **M3:** tracing/metrics, validation error i18n.

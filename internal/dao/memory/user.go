@@ -19,24 +19,28 @@ type UserDAO struct {
 	users map[string]*model.User
 }
 
-// NewUserDAO builds the store and seeds the demo user admin/admin123.
+// NewUserDAO builds an empty thread-safe user store.
 func NewUserDAO() *UserDAO {
+	return &UserDAO{users: make(map[string]*model.User)}
+}
+
+// NewDemoUserDAO builds a store seeded with the demo user admin/admin123.
+// It is intended for dev/test only; production must use a real DAO.
+func NewDemoUserDAO() *UserDAO {
 	hash, err := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
 	if err != nil {
 		panic(err) // static seed; cannot fail in practice
 	}
 	now := time.Now()
-	return &UserDAO{
-		users: map[string]*model.User{
-			"admin": {
-				ID:           1,
-				Username:     "admin",
-				PasswordHash: string(hash),
-				CreatedAt:    now,
-				UpdatedAt:    now,
-			},
-		},
+	d := NewUserDAO()
+	d.users["admin"] = &model.User{
+		ID:           1,
+		Username:     "admin",
+		PasswordHash: string(hash),
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
+	return d
 }
 
 // FindByUsername returns a copy of the matching user or dao.ErrUserNotFound.

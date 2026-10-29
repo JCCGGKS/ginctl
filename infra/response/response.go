@@ -28,9 +28,14 @@ const (
 // stable namespace even as transport details change. Add more codes here as
 // the API grows.
 const (
-	CodeBadRequest   = 40000
-	CodeUnauthorized = 40100
-	CodeInternal     = 50000
+	CodeBadRequest       = 40000
+	CodeUnauthorized     = 40100
+	CodeNotFound         = 40400
+	CodeMethodNotAllowed = 40500
+	CodeTimeout          = 40800
+	CodePayloadTooLarge  = 41300
+	CodeTooManyRequests  = 42900
+	CodeInternal         = 50000
 )
 
 // gin.Context key used to carry per-request metadata.
@@ -40,7 +45,7 @@ const ctxRequestIDKey = "request_id"
 type Body struct {
 	Code      int    `json:"code"`
 	Msg       string `json:"msg"`
-	Data      any    `json:"data,omitempty"`
+	Data      any    `json:"data"`
 	RequestID string `json:"request_id,omitempty"`
 	Timestamp int64  `json:"timestamp"`
 }
@@ -64,6 +69,21 @@ func BadRequest(msg string) *AppError { return NewAppError(http.StatusBadRequest
 func Unauthorized(msg string) *AppError {
 	return NewAppError(http.StatusUnauthorized, CodeUnauthorized, msg)
 }
+func NotFound(msg string) *AppError {
+	return NewAppError(http.StatusNotFound, CodeNotFound, msg)
+}
+func MethodNotAllowed(msg string) *AppError {
+	return NewAppError(http.StatusMethodNotAllowed, CodeMethodNotAllowed, msg)
+}
+func Timeout(msg string) *AppError {
+	return NewAppError(http.StatusRequestTimeout, CodeTimeout, msg)
+}
+func PayloadTooLarge(msg string) *AppError {
+	return NewAppError(http.StatusRequestEntityTooLarge, CodePayloadTooLarge, msg)
+}
+func TooManyRequests(msg string) *AppError {
+	return NewAppError(http.StatusTooManyRequests, CodeTooManyRequests, msg)
+}
 func Internal(msg string) *AppError {
 	return NewAppError(http.StatusInternalServerError, CodeInternal, msg)
 }
@@ -85,16 +105,33 @@ func OK(c *gin.Context, data any) {
 func Fail(c *gin.Context, err error) {
 	var appErr *AppError
 	if !errors.As(err, &appErr) {
-		logger.Error("unhandled error", zap.Error(err))
 		appErr = Internal("internal server error")
+		fields := errorFields(c, appErr)
+		fields = append(fields, zap.Error(err))
+		logger.Error("unhandled error", fields...)
+	} else if appErr.HTTPStatus >= http.StatusInternalServerError {
+		fields := errorFields(c, appErr)
+		fields = append(fields, zap.Error(err))
+		logger.Error("request failed", fields...)
 	}
 
+	c.Abort()
 	c.JSON(appErr.HTTPStatus, Body{
 		Code:      appErr.Code,
 		Msg:       appErr.Msg,
 		RequestID: RequestID(c),
 		Timestamp: time.Now().Unix(),
 	})
+}
+
+func errorFields(c *gin.Context, appErr *AppError) []zap.Field {
+	return []zap.Field{
+		zap.String("request_id", RequestID(c)),
+		zap.String("method", c.Request.Method),
+		zap.String("path", c.Request.URL.Path),
+		zap.Int("status", appErr.HTTPStatus),
+		zap.Int("code", appErr.Code),
+	}
 }
 
 // --- per-request metadata helpers (used by middleware) ---

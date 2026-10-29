@@ -7,14 +7,18 @@ package business
 import (
 	"context"
 	"errors"
+	"fmt"
 
-	"gin-scaffold/infra/response"
 	"gin-scaffold/internal/dao"
 	"gin-scaffold/internal/schema"
 	"gin-scaffold/internal/svc"
 
 	"golang.org/x/crypto/bcrypt"
 )
+
+// dummyPasswordHash keeps the unknown-user path as expensive as a real bcrypt
+// comparison, preventing username enumeration by response timing.
+var dummyPasswordHash = []byte("$2a$10$6OGoa2u1yiNPAencu1s1TeFtX1ZcLZNTaRINGjJ2U/nhTrriqDqb2")
 
 // AuthBusiness handles authentication business flow.
 type AuthBusiness struct {
@@ -29,27 +33,26 @@ func NewAuthBusiness(ctx context.Context, svcCtx *svc.ServiceContext) *AuthBusin
 
 // Login validates credentials and issues an access token.
 func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, error) {
-	select {
-	case <-l.ctx.Done():
-		return nil, response.Internal("request cancelled")
-	default:
+	if err := l.ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	user, err := l.svcCtx.UserDAO.FindByUsername(l.ctx, req.Username)
 	if err != nil {
 		if errors.Is(err, dao.ErrUserNotFound) {
-			return nil, response.Unauthorized("username or password is invalid")
+			_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(req.Password))
+			return nil, ErrInvalidCredentials
 		}
-		return nil, response.Internal("query user failed")
+		return nil, fmt.Errorf("query user: %w", err)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		return nil, response.Unauthorized("username or password is invalid")
+		return nil, ErrInvalidCredentials
 	}
 
 	accessToken, expiresAt, err := l.svcCtx.TokenManager.Issue(user.ID, user.Username)
 	if err != nil {
-		return nil, response.Internal("issue token failed")
+		return nil, fmt.Errorf("issue token: %w", err)
 	}
 
 	return &schema.LoginResponse{

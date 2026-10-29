@@ -1,6 +1,8 @@
 package router
 
 import (
+	"time"
+
 	"gin-scaffold/internal/handler"
 	"gin-scaffold/internal/middleware"
 	"gin-scaffold/internal/svc"
@@ -13,9 +15,13 @@ import (
 func registerRoutes(engine *gin.Engine, svcCtx *svc.ServiceContext) {
 	engine.GET("/healthz", handler.Health)
 
+	authHandler := handler.NewAuthHandler(svcCtx)
 	v1 := engine.Group("/api/v1")
-	v1.POST("/login", handler.NewAuthHandler(svcCtx).Login)
+	v1.POST("/login",
+		middleware.RateLimit(svcCtx.Config.Auth.LoginRateLimitPerMinute, time.Minute),
+		authHandler.Login,
+	)
 
 	protected := engine.Group("/api/v1", middleware.Auth(svcCtx.TokenManager))
-	protected.GET("/me", handler.NewAuthHandler(svcCtx).Me)
+	protected.GET("/me", authHandler.Me)
 }
