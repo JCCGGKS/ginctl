@@ -57,6 +57,7 @@ func run() error {
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           engine,
+		ErrorLog:          logger.StdLogger(),
 		ReadTimeout:       time.Duration(cfg.Server.ReadTimeoutSeconds) * time.Second,
 		ReadHeaderTimeout: time.Duration(cfg.Server.ReadHeaderTimeoutSeconds) * time.Second,
 		WriteTimeout:      time.Duration(cfg.Server.WriteTimeoutSeconds) * time.Second,

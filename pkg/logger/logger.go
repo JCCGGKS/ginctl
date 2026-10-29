@@ -5,6 +5,7 @@ package logger
 
 import (
 	"io"
+	stdlog "log"
 	"os"
 	"strings"
 
@@ -29,6 +30,16 @@ func Sync() {
 // writer) into the zap logger at info level.
 func Writer() io.Writer {
 	return &plainWriter{}
+}
+
+// StdLogger returns a *log.Logger that writes to zap at error level, suitable
+// for http.Server.ErrorLog.
+func StdLogger() *stdlog.Logger {
+	l, err := zap.NewStdLogAt(log, zapcore.ErrorLevel)
+	if err != nil {
+		return stdlog.New(io.Discard, "", 0)
+	}
+	return l
 }
 
 func Debug(msg string, fields ...zap.Field) { log.Debug(msg, fields...) }
