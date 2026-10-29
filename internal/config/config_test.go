@@ -41,6 +41,37 @@ func TestLoadAppliesDefaultsAndFile(t *testing.T) {
 	if cfg.Log.Format != "console" {
 		t.Errorf("Log.Format = %q, want default console", cfg.Log.Format)
 	}
+	if cfg.MySQL.Port != 3306 {
+		t.Errorf("MySQL.Port = %d, want default 3306", cfg.MySQL.Port)
+	}
+	if cfg.MySQL.Charset != "utf8mb4" {
+		t.Errorf("MySQL.Charset = %q, want default utf8mb4", cfg.MySQL.Charset)
+	}
+	if cfg.Redis.DB != 0 {
+		t.Errorf("Redis.DB = %d, want default 0", cfg.Redis.DB)
+	}
+}
+
+func TestMySQLDSNAndRedisAddr(t *testing.T) {
+	cfg := Config{
+		MySQL: MySQLConf{
+			Host:     "db.example.com",
+			Port:     3307,
+			User:     "app",
+			Password: "s3cret",
+			Database: "gin_scaffold",
+			Charset:  "utf8mb4",
+		},
+		Redis: RedisConf{Host: "cache.example.com", Port: 6380},
+	}
+
+	want := "app:s3cret@tcp(db.example.com:3307)/gin_scaffold?charset=utf8mb4&parseTime=true&loc=Local"
+	if got := cfg.MySQL.DSN(); got != want {
+		t.Errorf("MySQL.DSN() = %q, want %q", got, want)
+	}
+	if got := cfg.Redis.Addr(); got != "cache.example.com:6380" {
+		t.Errorf("Redis.Addr() = %q, want cache.example.com:6380", got)
+	}
 }
 
 func TestLoadEnvOverride(t *testing.T) {

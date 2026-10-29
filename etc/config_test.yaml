@@ -16,3 +16,27 @@ auth:
 log:
   level: info
   format: console
+
+mysql:
+  host: 127.0.0.1
+  port: 3306
+  user: root
+  password: ""
+  database: gin_scaffold_test
+  charset: utf8mb4
+  maxOpenConns: 20
+  maxIdleConns: 5
+  connMaxLifetimeSeconds: 300
+  connMaxIdleTimeSeconds: 60
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password: ""
+  db: 1
+  poolSize: 20
+  minIdleConns: 5
+  dialTimeoutSeconds: 5
+  readTimeoutSeconds: 3
+  writeTimeoutSeconds: 3
+  idleTimeoutSeconds: 300

@@ -16,3 +16,27 @@ auth:
 log:
   level: debug
   format: console
+
+mysql:
+  host: 127.0.0.1
+  port: 3306
+  user: root
+  password: ""               # set via MYSQL_PASSWORD when needed
+  database: gin_scaffold
+  charset: utf8mb4
+  maxOpenConns: 100
+  maxIdleConns: 10
+  connMaxLifetimeSeconds: 300
+  connMaxIdleTimeSeconds: 60
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password: ""               # set via REDIS_PASSWORD when needed
+  db: 0
+  poolSize: 100
+  minIdleConns: 10
+  dialTimeoutSeconds: 5
+  readTimeoutSeconds: 3
+  writeTimeoutSeconds: 3
+  idleTimeoutSeconds: 300

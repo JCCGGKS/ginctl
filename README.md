@@ -13,6 +13,7 @@ own storage.
 - Unified response envelope + typed `AppError` with business error codes.
 - Interface-based data access: `internal/dao` contract + in-memory demo store.
 - Per-environment config files: `etc/config_<env>.yaml`.
+- MySQL & Redis config stubs: pool settings + `DSN()` / `Addr()` helpers.
 
 ## Layout
 
@@ -66,6 +67,14 @@ go run . -f etc/config_dev.yaml
 | `-env prod` / `ENV=prod` | `etc/config_prod.yaml` | `release` | `json` |
 
 Resolution precedence is `-f` (explicit file) > `-env` flag > `ENV` > `dev`.
+
+## MySQL & Redis config
+
+Each `etc/config_<env>.yaml` ships `mysql` and `redis` sections. Values follow
+the same precedence and can be overridden by env vars, e.g. `MYSQL_HOST`,
+`MYSQL_PASSWORD`, `REDIS_HOST`, `REDIS_PASSWORD`. `config.MySQLConf.DSN()`
+returns a go-sql-driver DSN and `config.RedisConf.Addr()` returns `host:port`
+for wiring real clients in `internal/svc`.
 
 ## Auth demo
 
