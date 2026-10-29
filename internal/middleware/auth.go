@@ -34,3 +34,14 @@ func Auth(tm *token.Manager) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// CurrentClaims returns the authenticated JWT claims set by Auth, or nil when
+// the route was not protected.
+func CurrentClaims(c *gin.Context) *token.AuthClaims {
+	if v, ok := c.Get(ctxClaimsKey); ok {
+		if claims, ok := v.(*token.AuthClaims); ok {
+			return claims
+		}
+	}
+	return nil
+}
