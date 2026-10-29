@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"gin-scaffold/internal/config"
+	"gin-scaffold/internal/dao"
+	"gin-scaffold/internal/dao/memory"
 	"gin-scaffold/pkg/token"
 )
 
@@ -14,6 +16,7 @@ import (
 type ServiceContext struct {
 	Config       *config.Config
 	TokenManager *token.Manager
+	UserDAO      dao.UserDAO
 }
 
 // NewServiceContext assembles all dependencies from config.
@@ -21,5 +24,6 @@ func NewServiceContext(c *config.Config) *ServiceContext {
 	return &ServiceContext{
 		Config:       c,
 		TokenManager: token.NewManager(c.Auth.JWTSecret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
+		UserDAO:      memory.NewUserDAO(),
 	}
 }

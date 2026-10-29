@@ -6,10 +6,14 @@ package logic
 
 import (
 	"context"
+	"errors"
 
+	"gin-scaffold/internal/dao"
 	"gin-scaffold/internal/schema"
 	"gin-scaffold/internal/svc"
 	"gin-scaffold/pkg/response"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // AuthLogic handles authentication-related business logic.
@@ -23,27 +27,27 @@ func NewAuthLogic(ctx context.Context, svcCtx *svc.ServiceContext) *AuthLogic {
 	return &AuthLogic{ctx: ctx, svcCtx: svcCtx}
 }
 
-// Demo credentials so the skeleton has a working login without a user table.
-// Replace with a UserDAO lookup + bcrypt compare in a real service.
-const (
-	demoUsername = "admin"
-	demoPassword = "admin123"
-	demoUserID   = 1
-)
-
 // Login validates credentials and issues an access token.
 func (l *AuthLogic) Login(req *schema.LoginRequest) (*schema.LoginResponse, error) {
 	select {
 	case <-l.ctx.Done():
-		return nil, response.Internal(l.ctx.Err().Error())
+		return nil, response.Internal("request cancelled")
 	default:
 	}
 
-	if req.Username != demoUsername || req.Password != demoPassword {
+	user, err := l.svcCtx.UserDAO.FindByUsername(l.ctx, req.Username)
+	if err != nil {
+		if errors.Is(err, dao.ErrUserNotFound) {
+			return nil, response.Unauthorized("username or password is invalid")
+		}
+		return nil, response.Internal("query user failed")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		return nil, response.Unauthorized("username or password is invalid")
 	}
 
-	accessToken, expiresAt, err := l.svcCtx.TokenManager.Issue(demoUserID, req.Username)
+	accessToken, expiresAt, err := l.svcCtx.TokenManager.Issue(user.ID, user.Username)
 	if err != nil {
 		return nil, response.Internal("issue token failed")
 	}
@@ -52,8 +56,8 @@ func (l *AuthLogic) Login(req *schema.LoginRequest) (*schema.LoginResponse, erro
 		AccessToken:     accessToken,
 		AccessExpiresAt: expiresAt.Unix(),
 		User: schema.UserDTO{
-			ID:       demoUserID,
-			Username: req.Username,
+			ID:       user.ID,
+			Username: user.Username,
 		},
 	}, nil
 }
