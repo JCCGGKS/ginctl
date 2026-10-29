@@ -1,5 +1,5 @@
 // Package svc wires shared dependencies once at startup and hands them to the
-// handler/logic layers. This is the gin equivalent of go-zero's ServiceContext.
+// handler/business layers. This is the gin equivalent of go-zero's ServiceContext.
 package svc
 
 import (

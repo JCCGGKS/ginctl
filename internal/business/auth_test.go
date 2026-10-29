@@ -1,4 +1,4 @@
-package logic
+package business
 
 import (
 	"context"
@@ -19,7 +19,7 @@ func newTestServiceContext() *svc.ServiceContext {
 func TestLoginSuccess(t *testing.T) {
 	svcCtx := newTestServiceContext()
 
-	resp, err := NewAuthLogic(context.Background(), svcCtx).Login(&schema.LoginRequest{
+	resp, err := NewAuthBusiness(context.Background(), svcCtx).Login(&schema.LoginRequest{
 		Username: "admin",
 		Password: "admin123",
 	})
@@ -37,7 +37,7 @@ func TestLoginSuccess(t *testing.T) {
 func TestLoginWrongPassword(t *testing.T) {
 	svcCtx := newTestServiceContext()
 
-	if _, err := NewAuthLogic(context.Background(), svcCtx).Login(&schema.LoginRequest{
+	if _, err := NewAuthBusiness(context.Background(), svcCtx).Login(&schema.LoginRequest{
 		Username: "admin",
 		Password: "wrong",
 	}); err == nil {
@@ -48,7 +48,7 @@ func TestLoginWrongPassword(t *testing.T) {
 func TestLoginUnknownUser(t *testing.T) {
 	svcCtx := newTestServiceContext()
 
-	if _, err := NewAuthLogic(context.Background(), svcCtx).Login(&schema.LoginRequest{
+	if _, err := NewAuthBusiness(context.Background(), svcCtx).Login(&schema.LoginRequest{
 		Username: "nobody",
 		Password: "admin123",
 	}); err == nil {

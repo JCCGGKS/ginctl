@@ -13,7 +13,7 @@ import (
 var ErrUserNotFound = errors.New("user not found")
 
 // UserDAO abstracts user persistence. Swap the in-memory implementation for
-// MySQL/gorm without touching logic or handlers.
+// MySQL/gorm without touching business or handlers.
 type UserDAO interface {
 	FindByUsername(ctx context.Context, username string) (*model.User, error)
 }

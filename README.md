@@ -25,7 +25,7 @@ internal/
   router/                 gin engine + global middleware + explicit routes
   middleware/             requestid, accesslog, recovery, auth (JWT)
   handler/                health, auth login, me (thin HTTP adapters)
-  logic/                  auth login (business orchestration)
+  business/                  auth login (business orchestration)
   dao/                    UserDAO interface + memory/ implementation
   model/                  storage-side structs (db tags)
   schema/                 request/response DTOs
@@ -42,7 +42,7 @@ docs/ARCHITECTURE.md      design rationale
 | layer | answers | must not |
 |-------|---------|----------|
 | handler | "how does HTTP enter?" | hold business branches |
-| logic | "when & why is each step done?" | touch HTTP or raw SQL |
+| business | "when & why is each step done?" | touch HTTP or raw SQL |
 | dao | "how is data stored/queried?" | parse HTTP / decide policy |
 | middleware | "what applies across routes?" | hold business rules |
 | svc | "how are deps assembled?" | hold business logic |
@@ -80,7 +80,7 @@ curl -s http://127.0.0.1:8080/api/v1/me \
 
 The demo user is seeded by the in-memory DAO with a bcrypt hash
 (`admin` / `admin123`). Replace `internal/dao/memory` with a real `UserDAO`
-(MySQL/gorm) and it plugs into `internal/svc` without touching logic. The
+(MySQL/gorm) and it plugs into `internal/svc` without touching business. The
 `jwtSecret` is empty in prod and must be supplied via `AUTH_JWTSECRET`.
 
 ## Response contract

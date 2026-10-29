@@ -1,8 +1,8 @@
-// Package logic holds business orchestration: validate input, call DAOs,
-// assemble responses, and return typed errors. Handlers stay thin; logic
+// Package business holds business orchestration: validate input, call DAOs,
+// assemble responses, and return typed errors. Handlers stay thin; business
 // decides "when and why". Constructor pattern (ctx, svcCtx) mirrors the
 // reference project.
-package logic
+package business
 
 import (
 	"context"
@@ -16,19 +16,19 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// AuthLogic handles authentication-related business logic.
-type AuthLogic struct {
+// AuthBusiness handles authentication business flow.
+type AuthBusiness struct {
 	ctx    context.Context
 	svcCtx *svc.ServiceContext
 }
 
-// NewAuthLogic builds AuthLogic with request-scoped context and shared deps.
-func NewAuthLogic(ctx context.Context, svcCtx *svc.ServiceContext) *AuthLogic {
-	return &AuthLogic{ctx: ctx, svcCtx: svcCtx}
+// NewAuthBusiness builds AuthBusiness with request-scoped context and shared deps.
+func NewAuthBusiness(ctx context.Context, svcCtx *svc.ServiceContext) *AuthBusiness {
+	return &AuthBusiness{ctx: ctx, svcCtx: svcCtx}
 }
 
 // Login validates credentials and issues an access token.
-func (l *AuthLogic) Login(req *schema.LoginRequest) (*schema.LoginResponse, error) {
+func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, error) {
 	select {
 	case <-l.ctx.Done():
 		return nil, response.Internal("request cancelled")

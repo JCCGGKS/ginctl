@@ -8,9 +8,9 @@ source of study is the `mysurl1` go-zero short-link service; the goal was to
 
 - **Documented layer boundaries.** Each layer answers one question (config =
   what is configurable, schema = what the API exchanges, model = one row, dao =
-  how data is stored, logic = when/why, handler = how HTTP enters, middleware =
+  how data is stored, business = when/why, handler = how HTTP enters, middleware =
   cross-cutting, svc = how deps assemble, utils = reused generics).
-- **Thin handlers.** Fixed shape: parse → new logic → call → unified write.
+- **Thin handlers.** Fixed shape: parse → new business → call → unified write.
 - **Logic constructor pattern** `(ctx, svcCtx)`; methods orchestrate
   validate → cache → dao → assemble.
 - **Pure DAOs.** Raw SQL, soft delete, dynamic query builder, cursor pagination
@@ -42,7 +42,7 @@ sqlx and logx are truly go-zero-bound.
 
 ## 3. Migrated into this skeleton
 
-Layering & boundaries · unified response + typed error · logic constructor
+Layering & boundaries · unified response + typed error · business constructor
 pattern · ServiceContext DI · JWT auth + claims-in-context · zap structured
 logging · interface-based UserDAO (in-memory) + bcrypt login · pagination
 normalization · viper config (per-env file + defaults + env overrides) ·
@@ -56,7 +56,7 @@ Redis aggregation + async flush · concrete SQL/schema.
 
 ## 5. Design principles of the skeleton
 
-Few dependencies (gin + jwt + viper + zap) · thin handler / thick logic /
+Few dependencies (gin + jwt + viper + zap) · thin handler / thick business /
 cross-cutting middleware · interface-based DAO · one response contract · deps
 centralized in svc · observability (request id + structured access log + panic
 guard) · externalized config with defaults + env overrides · graceful shutdown ·
@@ -75,7 +75,7 @@ Login and protected read (`POST /api/v1/login`, `GET /api/v1/me`):
 ```
 POST /api/v1/login:
   RequestID -> AccessLog -> Recovery -> handler.Login.bind
-    -> logic.Login (dao lookup + bcrypt compare) -> token.Issue
+    -> business.Login (dao lookup + bcrypt compare) -> token.Issue
     -> response.OK {access_token, user}
 
 GET /api/v1/me:

@@ -1,4 +1,4 @@
-// Package handler adapts HTTP to the logic layer: bind input, call logic,
+// Package handler adapts HTTP to the business layer: bind input, call business,
 // write a unified response. No business branching lives here.
 package handler
 
