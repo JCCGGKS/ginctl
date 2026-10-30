@@ -72,6 +72,15 @@ go run . -f etc/config_test.yaml
 go run . -f etc/config_prod.yaml   # requires AUTH_JWTSECRET (>=32 bytes)
 ```
 
+Or use the local lifecycle script:
+
+```bash
+./scripts/start.sh                 # build and start dev in the background
+./scripts/start.sh restart test    # restart with etc/config_test.yaml
+./scripts/start.sh status
+./scripts/start.sh stop
+```
+
 ## Config file & gin mode
 
 The service has one CLI flag: `-f` selects the config file and defaults to
