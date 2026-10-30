@@ -17,9 +17,9 @@ import (
 func New(svcCtx *svc.ServiceContext) *gin.Engine {
 	gin.SetMode(svcCtx.Config.Server.Mode)
 
-	// Route gin's own debug/warning output through zap too.
-	gin.DefaultWriter = logger.Writer()
-	gin.DefaultErrorWriter = logger.Writer()
+	// Gin framework output belongs to the access module, not business logs.
+	gin.DefaultWriter = logger.AccessWriter()
+	gin.DefaultErrorWriter = logger.AccessErrorWriter()
 
 	engine := gin.New()
 	engine.HandleMethodNotAllowed = true

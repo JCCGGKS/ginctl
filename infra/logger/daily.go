@@ -18,20 +18,23 @@ const dateLayout = "2006-01-02"
 
 type dailyWriterOptions struct {
 	location     *time.Location
+	dailyRotate  bool
 	maxSizeBytes int64
 	maxAgeDays   int
 	compress     bool
 }
 
-// dailyWriter writes one module's encoded stream to
-// <rootDir>/<YYYY-MM>/<YYYY-MM-DD>_<module>.log and switches files when the
-// configured timezone's local date changes. When maxSizeBytes is positive it
-// also splits an oversized day into numbered parts. A mutex is required because
-// each zap core may be used concurrently.
+// dailyWriter writes one module's encoded stream either to date-based files or
+// to fixed files. Daily rotation uses
+// <rootDir>/<YYYY-MM>/<YYYY-MM-DD>_<module>.log and switches when the configured
+// timezone's local date changes. Fixed mode uses <rootDir>/<module>.log. In
+// both modes, a positive maxSizeBytes splits an oversized file into numbered
+// parts. A mutex is required because each zap core may be used concurrently.
 type dailyWriter struct {
 	rootDir      string
 	module       string
 	location     *time.Location
+	dailyRotate  bool
 	maxSizeBytes int64
 	maxAgeDays   int
 	compress     bool
@@ -54,6 +57,7 @@ func newDailyWriter(rootDir, module string, now time.Time, opts dailyWriterOptio
 		rootDir:      rootDir,
 		module:       module,
 		location:     opts.location,
+		dailyRotate:  opts.dailyRotate,
 		maxSizeBytes: opts.maxSizeBytes,
 		maxAgeDays:   opts.maxAgeDays,
 		compress:     opts.compress,
@@ -75,20 +79,34 @@ func (w *dailyWriter) Write(p []byte) (int, error) {
 	defer w.mu.Unlock()
 
 	now := time.Now().In(w.location)
-	today := now.Format(dateLayout)
-	if w.file == nil || w.day != today {
-		previousDay := w.day
-		if err := w.open(now); err != nil {
-			return 0, err
+	if w.dailyRotate {
+		today := now.Format(dateLayout)
+		if w.file == nil || w.day != today {
+			previousDay := w.day
+			if err := w.openDaily(today); err != nil {
+				return 0, err
+			}
+			if previousDay != "" {
+				w.startMaintenance(now)
+			}
 		}
-		if previousDay != "" {
-			w.startMaintenance(now)
-		}
-	}
 
-	if w.maxSizeBytes > 0 && w.size > 0 && w.size+int64(len(p)) > w.maxSizeBytes {
-		if err := w.openPart(today, w.part+1); err != nil {
-			return 0, err
+		if w.maxSizeBytes > 0 && w.size > 0 && w.size+int64(len(p)) > w.maxSizeBytes {
+			if err := w.openDailyPart(today, w.part+1); err != nil {
+				return 0, err
+			}
+		}
+	} else {
+		if w.file == nil {
+			if err := w.openFixed(); err != nil {
+				return 0, err
+			}
+		}
+		if w.maxSizeBytes > 0 && w.size > 0 && w.size+int64(len(p)) > w.maxSizeBytes {
+			if err := w.openFixedPart(w.part + 1); err != nil {
+				return 0, err
+			}
+			w.startMaintenance(now)
 		}
 	}
 
@@ -120,21 +138,42 @@ func (w *dailyWriter) Close() error {
 }
 
 func (w *dailyWriter) open(now time.Time) error {
-	day := now.In(w.location).Format(dateLayout)
-	part, err := w.latestPart(day)
+	if !w.dailyRotate {
+		return w.openFixed()
+	}
+	return w.openDaily(now.In(w.location).Format(dateLayout))
+}
+
+func (w *dailyWriter) openDaily(day string) error {
+	part, err := w.latestDailyPart(day)
 	if err != nil {
 		return err
 	}
-	return w.openPart(day, part)
+	return w.openDailyPart(day, part)
 }
 
-func (w *dailyWriter) openPart(day string, part int) error {
+func (w *dailyWriter) openDailyPart(day string, part int) error {
 	dir := filepath.Join(w.rootDir, day[:7])
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create log directory %q: %w", dir, err)
+	return w.openPath(filepath.Join(dir, logFileName(day, w.module, part)), day, part)
+}
+
+func (w *dailyWriter) openFixed() error {
+	part, err := w.latestFixedPart()
+	if err != nil {
+		return err
+	}
+	return w.openFixedPart(part)
+}
+
+func (w *dailyWriter) openFixedPart(part int) error {
+	return w.openPath(filepath.Join(w.rootDir, fixedFileName(w.module, part)), "", part)
+}
+
+func (w *dailyWriter) openPath(path, day string, part int) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create log directory %q: %w", filepath.Dir(path), err)
 	}
 
-	path := filepath.Join(dir, logFileName(day, w.module, part))
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open log file %q: %w", path, err)
@@ -156,7 +195,7 @@ func (w *dailyWriter) openPart(day string, part int) error {
 	return nil
 }
 
-func (w *dailyWriter) latestPart(day string) (int, error) {
+func (w *dailyWriter) latestDailyPart(day string) (int, error) {
 	dir := filepath.Join(w.rootDir, day[:7])
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -194,6 +233,42 @@ func (w *dailyWriter) latestPart(day string) (int, error) {
 	return latest, nil
 }
 
+func (w *dailyWriter) latestFixedPart() (int, error) {
+	entries, err := os.ReadDir(w.rootDir)
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read log directory %q: %w", w.rootDir, err)
+	}
+
+	latest := -1
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		part, ok := parseFixedPart(entry.Name(), w.module)
+		if ok && part > latest {
+			latest = part
+		}
+	}
+	if latest < 0 {
+		return 0, nil
+	}
+
+	info, err := os.Stat(filepath.Join(w.rootDir, fixedFileName(w.module, latest)))
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if w.maxSizeBytes > 0 && info.Size() >= w.maxSizeBytes {
+		return latest + 1, nil
+	}
+	return latest, nil
+}
+
 func parsePart(name, prefix string) (int, bool) {
 	if name == prefix+".log" {
 		return 0, true
@@ -218,6 +293,29 @@ func logFileName(day, module string, part int) string {
 	return base + "." + strconv.Itoa(part) + ".log"
 }
 
+func parseFixedPart(name, module string) (int, bool) {
+	if name == module+".log" {
+		return 0, true
+	}
+	rest, ok := strings.CutPrefix(name, module+".")
+	if !ok || !strings.HasSuffix(rest, ".log") {
+		return 0, false
+	}
+	digits := strings.TrimSuffix(rest, ".log")
+	part, err := strconv.Atoi(digits)
+	if err != nil || part < 1 {
+		return 0, false
+	}
+	return part, true
+}
+
+func fixedFileName(module string, part int) string {
+	if part == 0 {
+		return module + ".log"
+	}
+	return module + "." + strconv.Itoa(part) + ".log"
+}
+
 func (w *dailyWriter) startMaintenance(now time.Time) {
 	if w.maxAgeDays <= 0 && !w.compress {
 		return
@@ -235,6 +333,14 @@ func (w *dailyWriter) startMaintenance(now time.Time) {
 }
 
 func (w *dailyWriter) maintain(now time.Time) {
+	if !w.dailyRotate {
+		w.maintainFixed(now)
+		return
+	}
+	w.maintainDaily(now)
+}
+
+func (w *dailyWriter) maintainDaily(now time.Time) {
 	today := startOfDay(now, w.location)
 	cutoff := today.AddDate(0, 0, -w.maxAgeDays)
 
@@ -266,6 +372,72 @@ func (w *dailyWriter) maintain(now time.Time) {
 	if err != nil {
 		reportMaintenanceError(w.rootDir, err)
 	}
+}
+
+func (w *dailyWriter) maintainFixed(now time.Time) {
+	today := startOfDay(now, w.location)
+	cutoff := today.AddDate(0, 0, -w.maxAgeDays)
+	active := filepath.Clean(w.activePath())
+
+	entries, err := os.ReadDir(w.rootDir)
+	if os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		reportMaintenanceError(w.rootDir, err)
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		_, compressed, ok := matchFixedFile(entry.Name(), w.module)
+		if !ok {
+			continue
+		}
+
+		path := filepath.Join(w.rootDir, entry.Name())
+		if filepath.Clean(path) == active {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			reportMaintenanceError(path, err)
+			continue
+		}
+		fileDate := startOfDay(info.ModTime(), w.location)
+		if w.maxAgeDays > 0 && fileDate.Before(cutoff) {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				reportMaintenanceError(path, err)
+			}
+			continue
+		}
+		if w.compress && !compressed && fileDate.Before(today) {
+			if err := gzipFile(path); err != nil {
+				reportMaintenanceError(path, err)
+			}
+		}
+	}
+}
+
+func (w *dailyWriter) activePath() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.file == nil {
+		return ""
+	}
+	return w.file.Name()
+}
+
+func matchFixedFile(name, module string) (int, bool, bool) {
+	compressed := strings.HasSuffix(name, ".gz")
+	base := strings.TrimSuffix(name, ".gz")
+	part, ok := parseFixedPart(base, module)
+	if !ok {
+		return 0, false, false
+	}
+	return part, compressed, true
 }
 
 func (w *dailyWriter) matchFile(name string) (time.Time, bool, bool) {

@@ -51,13 +51,14 @@ func run() error {
 	}
 
 	if err := logger.Init(logger.Options{
-		RootDir:    cfg.Log.RootDir,
-		Level:      cfg.Log.Level,
-		Format:     cfg.Log.Format,
-		Timezone:   cfg.Log.Timezone,
-		MaxSizeMB:  cfg.Log.MaxSizeMB,
-		MaxAgeDays: cfg.Log.MaxAgeDays,
-		Compress:   cfg.Log.Compress,
+		RootDir:     cfg.Log.RootDir,
+		Level:       cfg.Log.Level,
+		Format:      cfg.Log.Format,
+		DailyRotate: cfg.Log.DailyRotate,
+		Timezone:    cfg.Log.Timezone,
+		MaxSizeMB:   cfg.Log.MaxSizeMB,
+		MaxAgeDays:  cfg.Log.MaxAgeDays,
+		Compress:    cfg.Log.Compress,
 	}); err != nil {
 		return fmt.Errorf("init logger: %w", err)
 	}

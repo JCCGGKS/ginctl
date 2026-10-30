@@ -1,5 +1,5 @@
 // Package logger builds one zap logger per application module. All modules
-// share a single root directory and roll to a new file at local midnight.
+// share a single root directory and can rotate by local date and/or file size.
 package logger
 
 import (
@@ -20,10 +20,9 @@ import (
 )
 
 const (
-	moduleApp      = "app"
-	moduleBusiness = "business"
-	moduleGORM     = "gorm"
-	moduleAccess   = "access"
+	moduleApp    = "app"
+	moduleGORM   = "gorm"
+	moduleAccess = "access"
 )
 
 // Logger wraps a module-scoped zap logger and adds request_id from ctx.
@@ -32,11 +31,10 @@ type Logger struct {
 }
 
 type manager struct {
-	app      *Logger
-	business *Logger
-	gorm     *Logger
-	access   *Logger
-	writers  []*dailyWriter
+	app     *Logger
+	gorm    *Logger
+	access  *Logger
+	writers []*dailyWriter
 }
 
 var (
@@ -46,24 +44,28 @@ var (
 
 // Options controls file-backed module logging.
 type Options struct {
-	RootDir    string
-	Level      string
-	Format     string
-	Timezone   string
-	MaxSizeMB  int
-	MaxAgeDays int
-	Compress   bool
+	RootDir     string
+	Level       string
+	Format      string
+	DailyRotate bool
+	Timezone    string
+	MaxSizeMB   int
+	MaxAgeDays  int
+	Compress    bool
 }
 
 // Init replaces the process loggers with file-backed module loggers. rootDir
-// is the only path setting; files are written to
-// <rootDir>/<YYYY-MM>/<YYYY-MM-DD>_<module>.log. level accepts
-// debug|info|warn|error; format accepts json|console and controls the file
-// encoder.
+// is the only path setting. With daily rotation enabled, files are written to
+// <rootDir>/<YYYY-MM>/<YYYY-MM-DD>_<module>.log; otherwise they are written to
+// <rootDir>/<module>.log. level accepts debug|info|warn|error; format accepts
+// json|console and controls the file encoder.
 func Init(opts Options) error {
 	rootDir := strings.TrimSpace(opts.RootDir)
 	if rootDir == "" {
 		return errors.New("log root dir is required")
+	}
+	if !opts.DailyRotate && opts.MaxSizeMB == 0 && (opts.MaxAgeDays > 0 || opts.Compress) {
+		return errors.New("log max size must be positive when daily rotation is disabled and retention or compression is enabled")
 	}
 	timezone := strings.TrimSpace(opts.Timezone)
 	if timezone == "" {
@@ -74,7 +76,7 @@ func Init(opts Options) error {
 		return fmt.Errorf("load log timezone %q: %w", timezone, err)
 	}
 
-	modules := []string{moduleApp, moduleBusiness, moduleGORM, moduleAccess}
+	modules := []string{moduleApp, moduleGORM, moduleAccess}
 	loggers := make([]*Logger, 0, len(modules))
 	writers := make([]*dailyWriter, 0, len(modules))
 
@@ -89,6 +91,7 @@ func Init(opts Options) error {
 	now := time.Now()
 	writerOptions := dailyWriterOptions{
 		location:     location,
+		dailyRotate:  opts.DailyRotate,
 		maxSizeBytes: int64(opts.MaxSizeMB) * 1024 * 1024,
 		maxAgeDays:   opts.MaxAgeDays,
 		compress:     opts.Compress,
@@ -104,11 +107,10 @@ func Init(opts Options) error {
 	}
 
 	next := &manager{
-		app:      loggers[0],
-		business: loggers[1],
-		gorm:     loggers[2],
-		access:   loggers[3],
-		writers:  writers,
+		app:     loggers[0],
+		gorm:    loggers[1],
+		access:  loggers[2],
+		writers: writers,
 	}
 
 	currentMu.Lock()
@@ -120,18 +122,12 @@ func Init(opts Options) error {
 	return nil
 }
 
-// App returns the startup/lifecycle/error logger.
+// App returns the application logger for internal lifecycle, error, and
+// business-event logs.
 func App() *Logger {
 	currentMu.RLock()
 	defer currentMu.RUnlock()
 	return current.app
-}
-
-// Business returns the business-event logger.
-func Business() *Logger {
-	currentMu.RLock()
-	defer currentMu.RUnlock()
-	return current.business
 }
 
 // GORM returns the database logger module. Pass a gorm adapter built with
@@ -214,9 +210,13 @@ func (l *Logger) Zap() *zap.Logger {
 	return l.zap
 }
 
-// Writer returns an io.Writer that routes plain lines (for example gin's
-// default writer) into the app logger at info level.
-func Writer() io.Writer { return plainWriter{} }
+// AccessWriter returns an io.Writer that routes Gin's plain output into the
+// access logger at info level.
+func AccessWriter() io.Writer { return plainWriter{level: zapcore.InfoLevel} }
+
+// AccessErrorWriter returns an io.Writer that routes Gin's plain error output
+// into the access logger at error level.
+func AccessErrorWriter() io.Writer { return plainWriter{level: zapcore.ErrorLevel} }
 
 // StdLogger returns a *log.Logger that writes to the app logger at error level,
 // suitable for http.Server.ErrorLog.
@@ -228,11 +228,17 @@ func StdLogger() *stdlog.Logger {
 	return l
 }
 
-type plainWriter struct{}
+type plainWriter struct {
+	level zapcore.Level
+}
 
-func (plainWriter) Write(p []byte) (int, error) {
+func (w plainWriter) Write(p []byte) (int, error) {
 	if msg := strings.TrimSpace(string(p)); msg != "" {
-		App().Info(context.Background(), msg)
+		if w.level >= zapcore.ErrorLevel {
+			Access().Error(context.Background(), msg)
+		} else {
+			Access().Info(context.Background(), msg)
+		}
 	}
 	return len(p), nil
 }
@@ -262,10 +268,9 @@ func newLogger(writer io.Writer, level zapcore.Level, json bool, module string) 
 
 func newFallbackManager() *manager {
 	return &manager{
-		app:      newFallbackLogger(moduleApp),
-		business: newFallbackLogger(moduleBusiness),
-		gorm:     newFallbackLogger(moduleGORM),
-		access:   newFallbackLogger(moduleAccess),
+		app:    newFallbackLogger(moduleApp),
+		gorm:   newFallbackLogger(moduleGORM),
+		access: newFallbackLogger(moduleAccess),
 	}
 }
 
@@ -291,7 +296,7 @@ func (m *manager) sync() {
 	if m == nil {
 		return
 	}
-	for _, logger := range []*Logger{m.app, m.business, m.gorm, m.access} {
+	for _, logger := range []*Logger{m.app, m.gorm, m.access} {
 		if logger != nil && logger.zap != nil {
 			_ = logger.zap.Sync()
 		}

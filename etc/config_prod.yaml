@@ -22,6 +22,7 @@ log:
   rootDir: logs
   level: info
   format: json
+  dailyRotate: true
   timezone: Asia/Shanghai
   maxSizeMB: 300
   maxAgeDays: 30

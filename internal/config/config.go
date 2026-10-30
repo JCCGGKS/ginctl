@@ -59,13 +59,14 @@ type AuthConf struct {
 }
 
 type LogConf struct {
-	RootDir    string `mapstructure:"rootDir"`
-	Level      string `mapstructure:"level"`
-	Format     string `mapstructure:"format"`
-	Timezone   string `mapstructure:"timezone"`
-	MaxSizeMB  int    `mapstructure:"maxSizeMB"`
-	MaxAgeDays int    `mapstructure:"maxAgeDays"`
-	Compress   bool   `mapstructure:"compress"`
+	RootDir     string `mapstructure:"rootDir"`
+	Level       string `mapstructure:"level"`
+	Format      string `mapstructure:"format"`
+	DailyRotate bool   `mapstructure:"dailyRotate"`
+	Timezone    string `mapstructure:"timezone"`
+	MaxSizeMB   int    `mapstructure:"maxSizeMB"`
+	MaxAgeDays  int    `mapstructure:"maxAgeDays"`
+	Compress    bool   `mapstructure:"compress"`
 }
 
 // MySQLConf holds connection-pool settings for a MySQL instance. DSN builds the
@@ -181,6 +182,9 @@ func (c Config) Validate(env string) error {
 	if c.Log.MaxAgeDays < 0 {
 		return fmt.Errorf("log.maxAgeDays must not be negative, got %d", c.Log.MaxAgeDays)
 	}
+	if !c.Log.DailyRotate && c.Log.MaxSizeMB == 0 && (c.Log.MaxAgeDays > 0 || c.Log.Compress) {
+		return errors.New("log.maxSizeMB must be positive when log.dailyRotate is false and retention or compression is enabled")
+	}
 	return nil
 }
 
@@ -238,6 +242,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "console")
 	v.SetDefault("log.rootDir", "logs")
+	v.SetDefault("log.dailyRotate", true)
 	v.SetDefault("log.timezone", "Asia/Shanghai")
 	v.SetDefault("log.maxSizeMB", 300)
 	v.SetDefault("log.maxAgeDays", 30)
