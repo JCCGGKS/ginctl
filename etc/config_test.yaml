@@ -7,7 +7,6 @@ server:
 auth:
   jwtSecret: test-secret
   accessExpireSeconds: 900
-  loginRateLimitPerMinute: 10
 
 log:
   rootDir: logs

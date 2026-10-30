@@ -46,9 +46,8 @@ type ServerConf struct {
 }
 
 type AuthConf struct {
-	JWTSecret               string `mapstructure:"jwtSecret"`
-	AccessExpireSeconds     int    `mapstructure:"accessExpireSeconds"`
-	LoginRateLimitPerMinute int    `mapstructure:"loginRateLimitPerMinute"`
+	JWTSecret           string `mapstructure:"jwtSecret"`
+	AccessExpireSeconds int    `mapstructure:"accessExpireSeconds"`
 }
 
 type LogConf struct {
@@ -130,9 +129,6 @@ func (c Config) Validate(env string) error {
 	}
 	if c.Auth.AccessExpireSeconds <= 0 {
 		return fmt.Errorf("auth.accessExpireSeconds must be positive, got %d", c.Auth.AccessExpireSeconds)
-	}
-	if c.Auth.LoginRateLimitPerMinute < 0 {
-		return fmt.Errorf("auth.loginRateLimitPerMinute must not be negative, got %d", c.Auth.LoginRateLimitPerMinute)
 	}
 	if strings.TrimSpace(c.MySQL.Host) == "" {
 		return errors.New("mysql.host is required")
@@ -269,7 +265,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.mode", "debug")
 	v.SetDefault("auth.jwtSecret", "")
 	v.SetDefault("auth.accessExpireSeconds", 900)
-	v.SetDefault("auth.loginRateLimitPerMinute", 10)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "console")
 	v.SetDefault("log.rootDir", "logs")

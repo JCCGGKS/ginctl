@@ -1,6 +1,6 @@
 # gin-scaffold 当前骨架模块梳理
 
-> 基线状态：当前工作区（已完成日志改造、MySQL + GORM、Redis 客户端和共享限流接入）
+> 基线状态：当前工作区（已完成日志改造、MySQL + GORM、Redis 客户端接入；登录限流已移除）
 >
 > 整理目标：按模块说明当前代码的职责、依赖边界、运行链路和审查重点。本文描述的是当前已实现状态，不把规划中的能力写成既有能力。
 
@@ -9,7 +9,7 @@
 - 项目是一个 Gin 服务骨架，启动时依赖可用的 MySQL 和 Redis。
 - 分层主线清晰：`handler -> business -> dao`，`middleware` 负责横切能力，`svc` 负责依赖装配，`infra` 放通用基础设施。
 - 启动流程包含配置加载、配置校验、日志初始化、依赖装配、路由构建、HTTP 服务和优雅关闭。
-- 已有能力：JWT 登录与鉴权、统一响应、错误码、访问日志、请求 ID、Redis 共享登录限流、panic 恢复、三模块日志、可配置的按天切割、日志压缩和保留清理、MySQL/Redis 连接池、启动 ping 和关闭逻辑。
+- 已有能力：JWT 登录与鉴权、统一响应、错误码、访问日志、请求 ID、panic 恢复、三模块日志、可配置的按天切割、日志压缩和保留清理、MySQL/Redis 连接池、启动 ping 和关闭逻辑。
 - 当前仍是骨架而非完整生产实现：用户表需要手动迁移，JWT 仍是单机无状态校验，没有刷新、撤销和黑名单。
 - 日志已按 `app`、`gorm`、`access` 拆分，并通过 `request_id` 串联；业务内部日志统一写入 `app`，GORM 查询通过 `db.WithContext(ctx)` 写入 `gorm`，HTTP 请求和 Gin 输出写入 `access`。
 
@@ -23,7 +23,7 @@
 │   ├── config/                配置结构、默认值、加载、校验
 │   ├── svc/                   依赖注入容器 ServiceContext
 │   ├── router/                路由注册和全局中间件装配
-│   ├── middleware/            请求 ID、限流、鉴权、访问日志、恢复等
+│   ├── middleware/            请求 ID、鉴权、访问日志、恢复等
 │   ├── handler/               HTTP 适配层
 │   ├── business/              业务编排和业务错误
 │   ├── dao/                   数据访问接口和 GORM 实现
@@ -33,7 +33,6 @@
 │   ├── logger/                分模块 zap 日志、按天/固定文件、GORM 适配
 │   ├── requestid/             request_id 的 context 载体
 │   ├── response/              统一响应包、AppError、业务码
-│   ├── ratelimit/             限流接口、Redis 和内存实现
 │   ├── token/                 JWT 签发和校验
 │   └── pagination/            分页归一化
 ├── migrations/                MySQL 建表脚本
@@ -46,7 +45,7 @@
 | 配置 | `internal/config/config.go` | 配置结构、默认值、Viper 加载、启动前校验 |
 | 依赖装配 | `internal/svc/service_context.go` | 构造 token manager、DAO 等共享依赖 |
 | 路由 | `internal/router/*.go` | Gin 引擎、中间件顺序、公开/受保护路由、404/405 |
-| 中间件 | `internal/middleware/*.go` | 请求 ID、访问日志、panic 恢复、限流、JWT 鉴权 |
+| 中间件 | `internal/middleware/*.go` | 请求 ID、访问日志、panic 恢复、JWT 鉴权 |
 | 处理器 | `internal/handler/*.go` | 绑定 HTTP 输入、调用业务、输出统一响应 |
 | 业务 | `internal/business/*.go` | 登录编排、凭证校验、错误语义、业务日志 |
 | DAO | `internal/dao/**` | 定义持久化接口，提供 MySQL/GORM 实现 |
@@ -55,7 +54,6 @@
 | 日志 | `infra/logger/*.go` | 模块 logger、按日文件、request_id 注入、GORM 适配 |
 | 请求 ID | `infra/requestid/requestid.go` | 在 `context.Context` 中保存和读取请求 ID |
 | 统一响应 | `infra/response/response.go` | 响应 envelope、AppError、业务码、错误日志 |
-| 限流 | `infra/ratelimit/*.go` | 统一 `Limiter` 接口、Redis 原子固定窗口、内存实现 |
 | JWT | `infra/token/token.go` | HS256 token 签发、解析、Bearer 提取 |
 | 分页 | `infra/pagination/pagination.go` | page/size 和 id cursor 边界归一化 |
 
@@ -69,7 +67,7 @@ main
  │               ├── redis ────── go-redis
  │               └── token
  └── router
-      ├── middleware ──── response / token / logger / requestid / ratelimit
+      ├── middleware ──── response / token / logger / requestid
       └── handler ─────── business ──── dao / schema / svc
                             └────────── logger
 ```
@@ -135,7 +133,7 @@ main
 | 分组 | 关键字段 | 用途 |
 |---|---|---|
 | `server` | host、port、mode | HTTP 监听地址和 Gin 模式；HTTP 超时固定在代码中 |
-| `auth` | jwtSecret、accessExpireSeconds、loginRateLimitPerMinute | JWT 和登录限流 |
+| `auth` | jwtSecret、accessExpireSeconds | JWT 签发和有效期 |
 | `log` | rootDir、level、format、dailyRotate、timezone、maxSizeMB、maxAgeDays、compress | 日志根目录、级别、编码、按天开关、切日时区、大小分片、保留和压缩 |
 | `mysql` | 连接、库名、连接池、超时 | 建立 GORM 连接、启动 ping、连接池和优雅关闭 |
 | `redis` | 地址、密码、DB、连接池、超时 | 建立 go-redis 客户端、启动 ping、连接池和优雅关闭 |
@@ -147,7 +145,7 @@ main
 - 端口范围合法。
 - Gin mode 只能是 `debug`、`release`、`test`，prod 必须是 `release`。
 - JWT secret 必填；prod 长度至少 32 字节。
-- access TTL 为正数，登录限流不能为负数。
+- access TTL 为正数。
 - MySQL host/port/user/database/charset 必填且格式合法；prod 必须提供非空密码；连接池必须为正数或合法非负值，`maxIdleConns` 不能超过 `maxOpenConns`。
 - Redis host/port 必填；prod 必须提供非空密码；DB 不能为负数；连接池和各类超时必须为正数，`minIdleConns` 不能超过 `poolSize`。
 - 日志级别只能是 `debug/info/warn/error`，格式只能是 `console/json`；rootDir 和 timezone 不能为空，timezone 必须可加载；maxSizeMB 和 maxAgeDays 不能为负数；`dailyRotate=false` 且启用保留或压缩时，maxSizeMB 必须大于 `0`。
@@ -157,7 +155,6 @@ main
 - dev/test 配置包含演示 secret；只能用于本地或测试，不能复用到真实环境。
 - MySQL 和 Redis 配置都已被 `svc` 消费；任一依赖连接失败都会阻止进程启动。
 - `MySQLConf.DSN` 固定 `parseTime=true&loc=Local`，并包含 5 秒拨号超时、30 秒读超时和 30 秒写超时；当前没有 TLS 参数，生产启用 TLS 时需要扩展 DSN。
-- `loginRateLimitPerMinute` 允许配置为 `0`，但限流器内部把 `max <= 0` 回退为 10，因此“0 表示关闭限流”的直觉并不成立。若需要关闭限流，应显式调整实现或约定。
 - `X-Forwarded-For` 固定不信任，`ClientIP` 始终使用直连地址；如果后续部署在反向代理后并需要真实客户端 IP，需要重新引入可信代理配置。
 
 ## 5. 依赖装配模块
@@ -215,7 +212,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 | 方法 | 路径 | 中间件 | 说明 |
 |---|---|---|---|
 | `GET` | `/healthz` | 全局中间件 | 极简存活探针，刻意不走统一 envelope |
-| `POST` | `/api/v1/login` | 全局 + 登录限流 | 用户名密码登录并签发 JWT |
+| `POST` | `/api/v1/login` | 全局中间件 | 用户名密码登录并签发 JWT |
 | `GET` | `/api/v1/me` | 全局 + JWT 鉴权 | 返回 token 中的当前用户身份 |
 
 ### 异常路由
@@ -226,7 +223,6 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 ### 审查关注
 
 - `AccessLog` 必须在 `Recovery` 外层；如果顺序反过来，panic 恢复后的访问日志可能缺失最终状态。
-- 登录限流使用 Redis 共享计数键 `ratelimit:login:<client-ip>`，多实例部署共享同一窗口。
 - 新增受保护路由时应放入 `protected` 分组，避免遗漏 `middleware.Auth`。
 
 ## 7. 中间件模块
@@ -238,22 +234,16 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 | `RequestID` | `requestid.go` | 读取 `X-Request-Id`，没有则生成 16 字节随机 hex；写入 Gin context、request context 和响应头 | 随机源失败时使用 `unknown` |
 | `AccessLog` | `accesslog.go` | 请求结束后记录 method/path/status/latency/client_ip/user_id | 写 `access` 模块日志 |
 | `Recovery` | `recovery.go` | recover panic，记录 app error 并返回统一 500 | `50000` |
-| `RateLimit` | `ratelimit.go` | 调用统一 `Limiter`，按 ClientIP 计数；超限返回 `Retry-After` | `42900` / Redis 故障 `50300` |
 | `Auth` | `auth.go` | 校验 `Authorization: Bearer <token>`，解析后把 claims 放入 Gin context | `40100` |
 
 ### 关键行为
 
 - `AccessLog` 自动从 request context 获取 `request_id`；鉴权成功时补充 `user_id`。
 - `Auth` 只接受 HS256，并要求 secret 已配置。
-- `RateLimit` 只依赖 `infra/ratelimit.Limiter` 接口；登录路由注入 Redis 实现，默认窗口一分钟，默认上限 10。
-- Redis 实现使用 Lua 脚本原子执行 `INCR`、首次请求设置 `PEXPIRE`，并返回剩余 TTL。
-- Redis 调用失败时中间件 fail closed，返回 `50300`，避免依赖故障时静默绕过登录限流。
 
 ### 审查关注
 
-- 固定窗口按客户端 IP 计数；`ClientIP` 使用直连地址，部署在反向代理后需要重新评估真实 IP 获取方式。
-- Redis 故障会直接导致登录接口返回 503，这是安全优先的故障策略；如果业务更重视可用性，需要在产品层面明确是否允许 fail open。
-- `infra/ratelimit` 仍保留内存实现，便于单机开发或独立测试，但应用路由默认使用 Redis。
+- `ClientIP` 使用直连地址，部署在反向代理后需要重新评估真实 IP 获取方式。
 - 外部传入的 `X-Request-Id` 当前没有长度和字符白名单校验。若直接暴露公网，建议限制长度，或在不受信任场景强制生成服务端 ID。
 - JWT 是无状态校验，没有 token 撤销、黑名单、刷新和登出语义。
 - `Recovery` 会先记录一次 `panic recovered`，随后 `response.Fail` 还会记录一次 5xx 的 `request failed`，同一 panic 可能产生两条 app error 日志。
@@ -474,9 +464,7 @@ type UserDAO interface {
 | `40400` | 资源不存在 |
 | `40500` | 方法不允许 |
 | `40800` | 超时/请求取消 |
-| `42900` | 限流 |
 | `50000` | 内部错误 |
-| `50300` | 依赖服务不可用，例如 Redis 限流失败 |
 
 错误处理规则：
 
@@ -514,7 +502,6 @@ POST /api/v1/login
   RequestID
   -> AccessLog
   -> Recovery
-  -> RateLimit（Redis Lua 固定窗口）
   -> handler.Login
        -> ShouldBindJSON
        -> business.AuthBusiness.Login
@@ -572,17 +559,16 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 
 ### 数据与持久化
 
-- MySQL 已接入 GORM、连接池、启动 ping 和关闭逻辑；Redis 已接入客户端、连接池、启动 ping、关闭逻辑和共享限流。
+- MySQL 已接入 GORM、连接池、启动 ping 和关闭逻辑；Redis 已接入客户端、连接池、启动 ping 和关闭逻辑，但当前没有路由使用 Redis。
 - 用户表需要先执行 `migrations/001_create_users.sql`，且没有内置种子账号。
 - 没有事务、锁、软删除、迁移工具和查询超时封装；当前只有一条按用户名查询。
 
 ### 安全
 
-- 登录只做必填校验，没有密码长度、用户名格式和请求频率之外的防爆破措施。
+- 登录只做必填校验，没有密码长度、用户名格式和频率限制等防爆破措施。
 - JWT 没有刷新、撤销、黑名单、issuer/audience 校验和密钥轮换。
 - `X-Request-Id` 未限制外部输入长度和字符。
 - GORM 日志默认只保留 SQL 占位符、不记录参数；如显式开启参数记录，敏感字段需要脱敏。
-- Redis 限流故障时登录接口 fail closed，可能影响登录可用性；当前没有降级到内存限流的策略。
 
 ### 可观测性
 
@@ -604,7 +590,7 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 2. **配置是否符合部署方式**：环境变量名、prod secret、trusted proxies、日志目录和超时。
 3. **分层依赖是否越界**：handler 是否只做适配，business 是否直接操作 HTTP，infra 是否反向依赖 internal。
 4. **认证与错误语义是否安全**：账号枚举、JWT 校验、401 文案、未知错误是否泄露内部信息。
-5. **中间件顺序是否正确**：RequestID、AccessLog、Recovery、限流和鉴权的作用范围。
+5. **中间件顺序是否正确**：RequestID、AccessLog、Recovery 和鉴权的作用范围。
 6. **日志是否能串联请求**：请求 ID 是否贯穿 access、app、gorm，敏感信息是否被排除。
 7. **生产缺口是否明确**：迁移流程、Redis 高可用、JWT 生命周期、日志保留和监控。
 8. **扩展点是否清晰**：新增路由、业务、DAO、依赖和日志模块时是否只需改局部装配。
@@ -616,7 +602,6 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 1. 将迁移脚本接入部署流程，并建立开发/生产的种子用户管理方式。
 2. 验证 `request_id` 在 MySQL/GORM 查询日志中的贯穿，并补充数据库错误分类。
 3. 为登录输入增加长度和格式约束，并评估账号锁定/验证码策略。
-4. 为 Redis 限流补充监控指标，并评估是否需要在依赖故障时 fail open 或降级。
-5. 增加 stdout/远程日志采集，并在部署环境验证保留、压缩和磁盘容量策略。
-6. 增加 metrics、trace、依赖健康检查和 readiness 路由。
-7. 补充核心路径测试；如项目要求“不保留测试文件”，则至少保留 CI 中的构建和静态检查。
+4. 增加 stdout/远程日志采集，并在部署环境验证保留、压缩和磁盘容量策略。
+5. 增加 metrics、trace、依赖健康检查和 readiness 路由。
+6. 补充核心路径测试；如项目要求“不保留测试文件”，则至少保留 CI 中的构建和静态检查。

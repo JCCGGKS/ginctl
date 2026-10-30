@@ -11,7 +11,7 @@ layers for your own storage.
 - Logging: per-module zap loggers, daily rotation, and `request_id` correlation.
 - JWT: login endpoint, Bearer auth middleware, and a protected `/api/v1/me`.
 - Unified response envelope + typed `AppError` with business error codes.
-- Login rate limiting, request-body limits, and proxy-aware client IP handling.
+- `X-Forwarded-For` is never trusted; `ClientIP` uses the direct socket address.
 - Interface-based data access: `internal/dao` contract + MySQL/GORM implementation.
 - Per-environment config files: `etc/config_<env>.yaml`.
 - MySQL and Redis clients with connection pools, startup ping, and graceful close.
@@ -25,7 +25,7 @@ internal/
   config/                 config structs + Load() + defaults (viper: defaults<file<env)
   svc/                    ServiceContext: dependency-injection container
   router/                 gin engine + global middleware + explicit routes
-  middleware/             requestid, accesslog, recovery, ratelimit, auth (JWT)
+  middleware/             requestid, accesslog, recovery, auth (JWT)
   handler/                health, auth login, me (thin HTTP adapters)
   business/                  auth login (business orchestration)
   dao/                    UserDAO interface + gorm/ implementation
@@ -35,7 +35,6 @@ infra/
   logger/                 per-module zap loggers + daily rotation + gorm adapter
   requestid/              request id context carrier
   response/               unified envelope + AppError + business codes
-  ratelimit/              shared limiter interface + Redis/memory backends
   token/                  JWT issue/parse (HS256 + custom claims)
   pagination/             page/size + id cursor normalization
 docs/ARCHITECTURE.md      design rationale
@@ -92,10 +91,8 @@ server before serving traffic, and closes the pool during shutdown. A failed
 connection is a startup error rather than a deferred request failure.
 
 Redis is opened with `go-redis`, configured with the pool and timeout values in
-YAML, and pinged before startup. Login rate limits use an atomic fixed-window
-Lua script under `ratelimit:login:<client-ip>`; counters are shared across
-instances. If Redis fails during a request, the login endpoint fails closed with
-`503` rather than silently disabling brute-force protection.
+YAML, and pinged before startup. No route currently uses Redis; it remains
+available for future shared state such as sessions or counters.
 
 `config.MySQLConf.DSN()` uses `parseTime=true`, local timezone interpretation,
 a 5s dial timeout, and 30s read/write timeouts. `config.RedisConf.Addr()` is
@@ -205,8 +202,6 @@ via `MYSQL_PASSWORD` and `REDIS_PASSWORD`.
 
 ## Security defaults
 
-- `auth.loginRateLimitPerMinute` limits login attempts per client IP (default 10)
-  with shared Redis counters, so multiple instances enforce one limit.
 - `X-Forwarded-For` is never trusted; `ClientIP` always uses the direct socket
   address.
 - 404 and 405 responses use the same JSON envelope and business-code namespace
@@ -216,7 +211,7 @@ via `MYSQL_PASSWORD` and `REDIS_PASSWORD`.
 
 Every business JSON endpoint returns `{code,msg,data,request_id,timestamp}`.
 `code=0` means success; business codes are independent of HTTP status (e.g.
-`40100` for unauthorized, `40400` for not found, `42900` for rate limiting,
-`50000` for internal errors, `50300` for unavailable dependencies). `GET
+`40100` for unauthorized, `40400` for not found, and `50000` for internal
+errors). `GET
 /healthz` is the deliberate exception: it returns a minimal `{status,time}` body
 for infrastructure probes.

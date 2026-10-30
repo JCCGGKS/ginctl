@@ -7,7 +7,6 @@ server:
 auth:
   jwtSecret: dev-secret-change-me
   accessExpireSeconds: 900
-  loginRateLimitPerMinute: 10
 
 log:
   rootDir: logs

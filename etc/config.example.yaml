@@ -14,7 +14,6 @@ server:
 auth:
   jwtSecret: "change-me-before-deploying-32bytes"  # HS256 签名密钥，必填；prod 至少 32 字节，建议通过 AUTH_JWTSECRET 注入
   accessExpireSeconds: 900           # access token 有效期，单位秒；当前默认 900 秒（15 分钟）
-  loginRateLimitPerMinute: 10        # 每个客户端 IP 每分钟登录尝试上限；当前 0 会回退为 10，不能用来关闭限流
 
 log:
   rootDir: "logs"                    # 日志根目录；相对路径基于进程工作目录。按天切割时为 <rootDir>/<YYYY-MM>/<YYYY-MM-DD>_<module>.log

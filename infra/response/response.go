@@ -34,9 +34,7 @@ const (
 	CodeNotFound         = 40400
 	CodeMethodNotAllowed = 40500
 	CodeTimeout          = 40800
-	CodeTooManyRequests  = 42900
 	CodeInternal         = 50000
-	CodeUnavailable      = 50300
 )
 
 // gin.Context key used to carry per-request metadata.
@@ -79,14 +77,8 @@ func MethodNotAllowed(msg string) *AppError {
 func Timeout(msg string) *AppError {
 	return NewAppError(http.StatusRequestTimeout, CodeTimeout, msg)
 }
-func TooManyRequests(msg string) *AppError {
-	return NewAppError(http.StatusTooManyRequests, CodeTooManyRequests, msg)
-}
 func Internal(msg string) *AppError {
 	return NewAppError(http.StatusInternalServerError, CodeInternal, msg)
-}
-func ServiceUnavailable(msg string) *AppError {
-	return NewAppError(http.StatusServiceUnavailable, CodeUnavailable, msg)
 }
 
 // OK writes a success envelope with HTTP 200.
