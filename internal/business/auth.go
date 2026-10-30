@@ -40,7 +40,7 @@ func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, e
 		return nil, err
 	}
 
-	user, err := l.svcCtx.UserDAO.FindByUsername(l.ctx, req.Username)
+	user, err := l.svcCtx.DAO.User.FindByUsername(l.ctx, req.Username)
 	if err != nil {
 		if errors.Is(err, dao.ErrUserNotFound) {
 			_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(req.Password))

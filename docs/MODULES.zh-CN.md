@@ -48,7 +48,7 @@
 | 中间件 | `common/middleware/*.go` | 请求 ID、访问日志、panic 恢复、JWT 鉴权 |
 | 处理器 | `internal/handler/*.go` | 绑定 HTTP 输入、调用业务、输出统一响应 |
 | 业务 | `internal/business/*.go` | 登录编排、凭证校验、错误语义、业务日志 |
-| DAO | `internal/dao/**` | 定义持久化接口，提供 MySQL/GORM 实现 |
+| DAO | `internal/dao/**` | 统一注册 DAO，定义持久化接口并提供 MySQL/GORM 实现 |
 | 存储模型 | `common/model/user.go` | 存储侧用户行结构 |
 | API DTO | `internal/schema/auth.go` | HTTP 请求和响应结构 |
 | 公共工具 | `common/*.go` | 统一响应、JWT、分页等可跨服务复用的通用能力 |
@@ -65,7 +65,7 @@
 main
  ├── config ──────── common/logger
  ├── common/logger
- ├── svc ────────┬── dao/gorm ─── gorm.io/gorm
+ ├── svc ────────┬── dao ──────── gorm.io/gorm
  │               ├── redis ────── go-redis
  │               └── common / common/logger
  └── router
@@ -168,7 +168,7 @@ CLI 只保留 `-f`，默认值为 `etc/config_dev.yaml`。环境由配置文件�
 type ServiceContext struct {
     Config       *config.Config
     JWTManager   *common.JWTManager
-    UserDAO      dao.UserDAO
+    DAO          *dao.Registry
     DB           *gorm.DB
     Redis        *redis.Client
 }
@@ -180,7 +180,7 @@ type ServiceContext struct {
 - 要求 `auth.jwtSecret` 非空，属于入口校验前的防御性检查。
 - 调用 `openDatabase` 打开 MySQL：使用 GORM MySQL dialector，注入 `gorm` 模块 logger，设置连接池上限、生命周期和空闲时间，并在启动阶段 ping。
 - 调用 `openRedis` 尝试打开 Redis：设置密码、DB、连接池、拨号和读写超时，并在启动阶段 ping；失败时记录 warning、关闭临时客户端并保持 `ServiceContext.Redis == nil`，不会关闭 MySQL。
-- 构造 `gormdao.NewUserDAO(db)`，不再按环境切换 DAO 实现。
+- 构造 `dao.NewRegistry(db)`，所有 DAO 从这里统一获取。
 - 用配置构造 `common.JWTManager`。
 - 提供幂等的 `Close()`，关闭底层 `*sql.DB` 和 Redis 客户端。
 
@@ -338,13 +338,20 @@ type UserDAO interface {
 
 - 业务层只依赖接口。
 - `ErrUserNotFound` 是 DAO 层 sentinel error。
-- 数据库实现位于 `internal/dao/gorm/user.go`，由 `svc` 注入。
+- 数据库实现与接口同位于 `internal/dao/user.go`，由 `dao.Registry` 统一构造并通过 `svc` 注入。
+
+### DAO 注册表
+
+文件：`internal/dao/registry.go`
+
+- `dao.Registry` 聚合所有 DAO 接口，`ServiceContext` 只持有 `DAO *dao.Registry`。
+- 新增 model/DAO 时，只需新增对应 DAO 文件，并在 `Registry` 中增加字段、在 `NewRegistry` 中构造。
 
 ### GORM 实现
 
-目录：`internal/dao/gorm/`
+文件：`internal/dao/user.go`
 
-- `UserDAO` 持有 `*gorm.DB`，由 `NewUserDAO` 构造。
+- `GormUserDAO` 持有 `*gorm.DB`，由 `NewUserDAO` 构造，并实现 `UserDAO` 接口。
 - `FindByUsername` 使用 `db.WithContext(ctx)` 执行参数化查询，保证查询能被请求取消，并让 GORM 日志拿到同一个 `request_id`。
 - `gorm.ErrRecordNotFound` 转换为 `dao.ErrUserNotFound`，其他数据库错误带上下文返回。
 - 不记录明文密码、密码哈希或 JWT。

@@ -14,7 +14,6 @@ import (
 	"gin-scaffold/common/logger"
 	"gin-scaffold/internal/config"
 	"gin-scaffold/internal/dao"
-	gormdao "gin-scaffold/internal/dao/gorm"
 
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -26,7 +25,7 @@ import (
 type ServiceContext struct {
 	Config     *config.Config
 	JWTManager *common.JWTManager
-	UserDAO    dao.UserDAO
+	DAO        *dao.Registry
 	DB         *gorm.DB
 	// Redis is optional and may be nil when the configured instance is
 	// unavailable at startup.
@@ -65,7 +64,7 @@ func NewServiceContext(c *config.Config) (*ServiceContext, error) {
 	return &ServiceContext{
 		Config:     c,
 		JWTManager: common.NewJWTManager(secret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
-		UserDAO:    gormdao.NewUserDAO(db),
+		DAO:        dao.NewRegistry(db),
 		DB:         db,
 		Redis:      redisClient,
 		sqlDB:      sqlDB,

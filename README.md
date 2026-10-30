@@ -27,7 +27,7 @@ internal/
   router/                 gin engine + global middleware + explicit routes
   handler/                health, auth login, me (thin HTTP adapters)
   business/                  auth login (business orchestration)
-  dao/                    UserDAO interface + gorm/ implementation
+  dao/                    DAO registry + interfaces + GORM implementations
   schema/                 request/response DTOs
 common/                   public packages shared across services
   errorcode/              shared sentinel errors
