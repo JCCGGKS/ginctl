@@ -5,9 +5,9 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gin-scaffold/common"
-	apperrors "gin-scaffold/common/errors"
 	"gin-scaffold/common/logger"
 	"gin-scaffold/common/middleware"
+	apperrors "gin-scaffold/internal/errors"
 	"gin-scaffold/internal/handler"
 	"gin-scaffold/internal/svc"
 )

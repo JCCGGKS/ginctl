@@ -5,7 +5,7 @@ package middleware
 
 import (
 	"gin-scaffold/common"
-	apperrors "gin-scaffold/common/errors"
+	apperrors "gin-scaffold/internal/errors"
 
 	"github.com/gin-gonic/gin"
 )

@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"gin-scaffold/common/model"
-	bizerrors "gin-scaffold/internal/errors"
+	apperrors "gin-scaffold/internal/errors"
 
 	"gorm.io/gorm"
 )
@@ -36,7 +36,7 @@ func (d *GormUserDAO) FindByUsername(ctx context.Context, username string) (*mod
 		Where("username = ?", username).
 		Take(&user).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, bizerrors.ErrUserNotFound
+		return nil, apperrors.ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("find user by username: %w", err)

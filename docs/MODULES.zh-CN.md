@@ -27,10 +27,9 @@
 │   ├── business/              业务编排和业务错误
 │   ├── dao/                   数据访问接口和 GORM 实现
 │   ├── cache/                 应用缓存层，封装可选 Redis 客户端
-│   ├── errors/                本业务域 sentinel error
+│   ├── errors/                应用错误类型、业务码和本业务域 sentinel error
 │   └── schema/                HTTP 请求/响应 DTO
 ├── common/                     公共包：跨服务共享的通用能力与表模型
-│   ├── errors/                AppError、业务错误码和构造器
 │   ├── logger/                分模块 zap 日志、按天/固定文件、GORM 适配、request_id context
 │   ├── middleware/            请求 ID、鉴权、访问日志、恢复等
 │   ├── model/                 存储侧模型
@@ -52,11 +51,10 @@
 | 业务 | `internal/business/*.go` | 登录编排、凭证校验、错误语义、业务日志 |
 | DAO | `internal/dao/**` | 统一注册 DAO，定义持久化接口并提供 MySQL/GORM 实现 |
 | 缓存 | `internal/cache/cache.go` | 封装可选 Redis 客户端，向业务暴露应用级 Cache |
-| 业务错误 | `internal/errors/errors.go` | 本业务域 sentinel error |
+| 错误定义 | `internal/errors/errors.go` | AppError、业务错误码、构造器、本业务域 sentinel error |
 | 存储模型 | `common/model/user.go` | 存储侧用户行结构 |
 | API DTO | `internal/schema/auth.go` | HTTP 请求和响应结构 |
 | 公共工具 | `common/*.go` | 统一响应、JWT、分页等可跨服务复用的通用能力 |
-| 通用错误 | `common/errors/errors.go` | AppError、业务错误码和构造器 |
 | 日志 | `common/logger/*.go` | 模块 logger、按日文件、request_id 注入、GORM 适配 |
 | 请求 ID | `common/logger/requestid.go` | 在 `context.Context` 中保存和读取请求 ID |
 | 统一响应 | `common/response.go` | 响应 envelope、错误映射为 HTTP 响应、错误日志 |
@@ -86,9 +84,9 @@ main
 | `dao` | 持久化接口和具体查询 | HTTP 解析、业务策略 |
 | `middleware` | 跨路由 HTTP 横切逻辑 | 具体业务规则 |
 | `svc` | 构造和共享依赖 | 业务流程 |
-| `common` | 可跨服务复用的通用公共能力 | 依赖 `internal/*` 业务模块 |
+| `common` | 跨服务共享的通用 HTTP 与表模型能力 | 承载业务流程 |
 
-当前 `common` 只依赖标准库、第三方库和 `common/logger`，不导入任何 `internal/*` 业务模块，方向保持正确。业务层通过 `svc.ServiceContext` 获取 DAO、Cache 和 JWT manager，这是当前骨架的核心装配方式。
+当前 `common` 只依赖标准库、第三方库、`common/logger` 和 `internal/errors`；`internal/errors` 只提供共享错误定义，不承载业务流程。业务层通过 `svc.ServiceContext` 获取 DAO、Cache 和 JWT manager，这是当前骨架的核心装配方式。
 
 ## 3. 进程入口与生命周期
 
@@ -454,7 +452,7 @@ type UserDAO interface {
 
 ### 12.3 统一响应与错误
 
-文件：`common/response.go`、`common/errors/errors.go`、`internal/errors/errors.go`
+文件：`common/response.go`、`internal/errors/errors.go`
 
 成功响应：
 
@@ -468,7 +466,7 @@ type UserDAO interface {
 }
 ```
 
-业务码定义在 `common/errors`，是独立于 HTTP 状态的稳定命名空间：
+业务码定义在 `internal/errors`，是独立于 HTTP 状态的稳定命名空间：
 
 | 业务码 | 含义 |
 |---|---|
@@ -482,8 +480,8 @@ type UserDAO interface {
 
 错误处理规则：
 
-- 已知 `*errors.AppError` 保留 HTTP 状态和业务码。
-- 5xx 的 `errors.AppError` 会写入 `app` error 日志。
+- 已知 `*internal/errors.AppError` 保留 HTTP 状态和业务码。
+- 5xx 的 `internal/errors.AppError` 会写入 `app` error 日志。
 - 未知错误统一降级为 `50000` 和通用文案，原始错误只写日志，不返回客户端。
 - 4xx 不写 app error 日志，由 access 日志记录访问结果。
 

@@ -2,8 +2,8 @@ package handler
 
 import (
 	"gin-scaffold/common"
-	apperrors "gin-scaffold/common/errors"
 	"gin-scaffold/common/middleware"
+	apperrors "gin-scaffold/internal/errors"
 	"gin-scaffold/internal/schema"
 
 	"github.com/gin-gonic/gin"

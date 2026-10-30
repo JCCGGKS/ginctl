@@ -2,8 +2,8 @@ package middleware
 
 import (
 	"gin-scaffold/common"
-	apperrors "gin-scaffold/common/errors"
 	"gin-scaffold/common/logger"
+	apperrors "gin-scaffold/internal/errors"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

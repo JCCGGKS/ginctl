@@ -29,10 +29,9 @@ internal/
   business/                  auth login (business orchestration)
   dao/                    DAO registry + interfaces + GORM implementations
   cache/                  application cache wrapper around the optional Redis client
-  errors/                 domain-specific sentinel errors
+  errors/                 application errors, business codes, and domain sentinels
   schema/                 request/response DTOs
 common/                   public packages shared across services
-  errors/                 AppError, business codes, and constructors
   logger/                 per-module zap loggers + daily rotation + gorm adapter + request_id context
   middleware/             requestid, accesslog, recovery, auth (JWT)
   model/                  storage-side structs (db tags)

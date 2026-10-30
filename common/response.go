@@ -1,8 +1,7 @@
 // Package common holds cross-cutting building blocks shared by the HTTP and
 // application layers: the unified response envelope, JWT handling, and
-// pagination helpers. Transport errors live in common/errors, domain sentinel
-// errors live in internal/errors, and request-id context helpers live in
-// common/logger.
+// pagination helpers. Application and domain errors live in internal/errors,
+// and request-id context helpers live in common/logger.
 //
 // Contract:
 //   - every JSON endpoint returns the same shape: {code,msg,data,...}
@@ -16,8 +15,8 @@ import (
 	"net/http"
 	"time"
 
-	apperrors "gin-scaffold/common/errors"
 	"gin-scaffold/common/logger"
+	apperrors "gin-scaffold/internal/errors"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
