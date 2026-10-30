@@ -40,16 +40,17 @@ var (
 	current   = newFallbackManager()
 )
 
-// Options controls file-backed module logging.
-type Options struct {
-	RootDir     string
-	Level       string
-	Format      string
-	DailyRotate bool
-	Timezone    string
-	MaxSizeMB   int
-	MaxAgeDays  int
-	Compress    bool
+// Config controls file-backed module logging. It is populated directly from
+// the application config's log section.
+type Config struct {
+	RootDir     string `mapstructure:"rootDir"`
+	Level       string `mapstructure:"level"`
+	Format      string `mapstructure:"format"`
+	DailyRotate bool   `mapstructure:"dailyRotate"`
+	Timezone    string `mapstructure:"timezone"`
+	MaxSizeMB   int    `mapstructure:"maxSizeMB"`
+	MaxAgeDays  int    `mapstructure:"maxAgeDays"`
+	Compress    bool   `mapstructure:"compress"`
 }
 
 // Init replaces the process loggers with file-backed module loggers. rootDir
@@ -57,15 +58,15 @@ type Options struct {
 // <rootDir>/<YYYY-MM>/<YYYY-MM-DD>_<module>.log; otherwise they are written to
 // <rootDir>/<module>.log. level accepts debug|info|warn|error; format accepts
 // json|console and controls the file encoder.
-func Init(opts Options) error {
-	rootDir := strings.TrimSpace(opts.RootDir)
+func Init(cfg Config) error {
+	rootDir := strings.TrimSpace(cfg.RootDir)
 	if rootDir == "" {
 		return errors.New("log root dir is required")
 	}
-	if !opts.DailyRotate && opts.MaxSizeMB == 0 && (opts.MaxAgeDays > 0 || opts.Compress) {
+	if !cfg.DailyRotate && cfg.MaxSizeMB == 0 && (cfg.MaxAgeDays > 0 || cfg.Compress) {
 		return errors.New("log max size must be positive when daily rotation is disabled and retention or compression is enabled")
 	}
-	timezone := strings.TrimSpace(opts.Timezone)
+	timezone := strings.TrimSpace(cfg.Timezone)
 	if timezone == "" {
 		timezone = "Local"
 	}
@@ -84,15 +85,15 @@ func Init(opts Options) error {
 		}
 	}
 
-	jsonEncoding := strings.EqualFold(opts.Format, "json")
-	levelValue := parseLevel(opts.Level)
+	jsonEncoding := strings.EqualFold(cfg.Format, "json")
+	levelValue := parseLevel(cfg.Level)
 	now := time.Now()
 	writerOptions := dailyWriterOptions{
 		location:     location,
-		dailyRotate:  opts.DailyRotate,
-		maxSizeBytes: int64(opts.MaxSizeMB) * 1024 * 1024,
-		maxAgeDays:   opts.MaxAgeDays,
-		compress:     opts.Compress,
+		dailyRotate:  cfg.DailyRotate,
+		maxSizeBytes: int64(cfg.MaxSizeMB) * 1024 * 1024,
+		maxAgeDays:   cfg.MaxAgeDays,
+		compress:     cfg.Compress,
 	}
 	for _, module := range modules {
 		writer, err := newDailyWriter(rootDir, module, now, writerOptions)

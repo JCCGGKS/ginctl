@@ -13,6 +13,8 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"gin-scaffold/infra/logger"
+
 	"github.com/spf13/viper"
 )
 
@@ -32,11 +34,11 @@ func FileForEnv(dir, env string) string {
 // Config is the root configuration tree. mapstructure tags are what
 // viper.Unmarshal reads.
 type Config struct {
-	Server ServerConf `mapstructure:"server"`
-	Auth   AuthConf   `mapstructure:"auth"`
-	Log    LogConf    `mapstructure:"log"`
-	MySQL  MySQLConf  `mapstructure:"mysql"`
-	Redis  RedisConf  `mapstructure:"redis"`
+	Server ServerConf    `mapstructure:"server"`
+	Auth   AuthConf      `mapstructure:"auth"`
+	Log    logger.Config `mapstructure:"log"`
+	MySQL  MySQLConf     `mapstructure:"mysql"`
+	Redis  RedisConf     `mapstructure:"redis"`
 }
 
 type ServerConf struct {
@@ -48,17 +50,6 @@ type ServerConf struct {
 type AuthConf struct {
 	JWTSecret           string `mapstructure:"jwtSecret"`
 	AccessExpireSeconds int    `mapstructure:"accessExpireSeconds"`
-}
-
-type LogConf struct {
-	RootDir     string `mapstructure:"rootDir"`
-	Level       string `mapstructure:"level"`
-	Format      string `mapstructure:"format"`
-	DailyRotate bool   `mapstructure:"dailyRotate"`
-	Timezone    string `mapstructure:"timezone"`
-	MaxSizeMB   int    `mapstructure:"maxSizeMB"`
-	MaxAgeDays  int    `mapstructure:"maxAgeDays"`
-	Compress    bool   `mapstructure:"compress"`
 }
 
 // MySQLConf holds connection-pool settings for a MySQL instance. DSN builds the
@@ -106,9 +97,22 @@ func (r RedisConf) Addr() string {
 	return fmt.Sprintf("%s:%d", r.Host, r.Port)
 }
 
+// ValidateEnv rejects environment names other than dev, test, and prod.
+func ValidateEnv(env string) error {
+	switch strings.ToLower(env) {
+	case "dev", "test", "prod":
+		return nil
+	default:
+		return fmt.Errorf("env must be dev, test, or prod, got %q", env)
+	}
+}
+
 // Validate rejects configuration that would otherwise fail late at runtime.
 // env is the selected environment name, e.g. "dev", "test", or "prod".
 func (c Config) Validate(env string) error {
+	if err := ValidateEnv(env); err != nil {
+		return err
+	}
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		return fmt.Errorf("server.port must be between 1 and 65535, got %d", c.Server.Port)
 	}

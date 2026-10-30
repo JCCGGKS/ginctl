@@ -7,9 +7,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,8 +35,25 @@ const (
 	httpMaxHeaderBytes    = 1 << 20
 )
 
+type options struct {
+	env      string
+	confDir  string
+	confFile string
+}
+
 func main() {
-	err := run()
+	opts, err := parseOptions(os.Args[1:])
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			logger.Close()
+			return
+		}
+		logger.App().Error(context.Background(), "parse flags failed", zap.Error(err))
+		logger.Close()
+		os.Exit(2)
+	}
+
+	err = run(opts)
 	if err != nil {
 		logger.App().Error(context.Background(), "server exited with error", zap.Error(err))
 	}
@@ -43,42 +63,46 @@ func main() {
 	}
 }
 
-func run() (runErr error) {
-	var (
-		env      = flag.String("env", envOrDefault("ENV", config.DefaultEnv), "runtime environment: dev|test|prod (also via ENV)")
-		confDir  = flag.String("c", "etc", "directory holding config_<env>.yaml files")
-		confFile = flag.String("f", "", "explicit config file; when set it overrides -env/-c")
-	)
-	flag.Parse()
+func parseOptions(args []string) (options, error) {
+	fs := flag.NewFlagSet("ginctl", flag.ContinueOnError)
+	var opts options
+	fs.StringVar(&opts.env, "env", envOrDefault("ENV", config.DefaultEnv), "runtime environment: dev|test|prod (also via ENV)")
+	fs.StringVar(&opts.confDir, "c", "etc", "directory holding config_<env>.yaml files")
+	fs.StringVar(&opts.confFile, "f", "", "explicit config file; when set it overrides -env/-c")
+	if err := fs.Parse(args); err != nil {
+		return options{}, err
+	}
+	opts.env = strings.ToLower(strings.TrimSpace(opts.env))
+	if opts.env == "" {
+		opts.env = config.DefaultEnv
+	}
+	return opts, nil
+}
 
-	configFile := *confFile
+func run(opts options) (runErr error) {
+	if err := config.ValidateEnv(opts.env); err != nil {
+		return err
+	}
+
+	configFile := opts.confFile
 	if configFile == "" {
-		configFile = config.FileForEnv(*confDir, *env)
+		configFile = config.FileForEnv(opts.confDir, opts.env)
 	}
 
 	cfg, err := config.Load(configFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("load config %q: %w", configFile, err)
 	}
 
-	if err := logger.Init(logger.Options{
-		RootDir:     cfg.Log.RootDir,
-		Level:       cfg.Log.Level,
-		Format:      cfg.Log.Format,
-		DailyRotate: cfg.Log.DailyRotate,
-		Timezone:    cfg.Log.Timezone,
-		MaxSizeMB:   cfg.Log.MaxSizeMB,
-		MaxAgeDays:  cfg.Log.MaxAgeDays,
-		Compress:    cfg.Log.Compress,
-	}); err != nil {
+	if err := cfg.Validate(opts.env); err != nil {
+		return fmt.Errorf("validate config: %w", err)
+	}
+
+	if err := logger.Init(cfg.Log); err != nil {
 		return fmt.Errorf("init logger: %w", err)
 	}
 	bg := context.Background()
-	logger.App().Info(bg, "config loaded", zap.String("env", *env), zap.String("file", configFile))
-
-	if err := cfg.Validate(*env); err != nil {
-		return fmt.Errorf("validate config: %w", err)
-	}
+	logger.App().Info(bg, "config loaded", zap.String("env", opts.env), zap.String("file", configFile))
 
 	svcCtx, err := svc.NewServiceContext(&cfg)
 	if err != nil {
@@ -86,15 +110,15 @@ func run() (runErr error) {
 	}
 	defer func() {
 		if closeErr := svcCtx.Close(); closeErr != nil {
-			logger.App().Error(context.Background(), "close database failed", zap.Error(closeErr))
+			logger.App().Error(context.Background(), "close service context failed", zap.Error(closeErr))
 			if runErr == nil {
-				runErr = fmt.Errorf("close database: %w", closeErr)
+				runErr = fmt.Errorf("close service context: %w", closeErr)
 			}
 		}
 	}()
 	engine := router.New(svcCtx)
 
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	addr := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           engine,
@@ -110,7 +134,9 @@ func run() (runErr error) {
 	defer stop()
 
 	errCh := make(chan error, 1)
+	serveDone := make(chan struct{})
 	go func() {
+		defer close(serveDone)
 		logger.App().Info(bg, "server starting", zap.String("addr", addr), zap.String("mode", cfg.Server.Mode))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
@@ -122,6 +148,7 @@ func run() (runErr error) {
 	case serveErr = <-errCh:
 		logger.App().Error(bg, "server error", zap.Error(serveErr))
 	case <-ctx.Done():
+		stop()
 		logger.App().Info(bg, "server shutting down gracefully")
 	}
 
@@ -132,6 +159,12 @@ func run() (runErr error) {
 		if serveErr == nil {
 			serveErr = err
 		}
+	}
+
+	select {
+	case <-serveDone:
+	case <-shutdownCtx.Done():
+		logger.App().Warn(bg, "server did not stop before shutdown deadline")
 	}
 	logger.App().Info(bg, "server stopped")
 
