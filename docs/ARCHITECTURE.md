@@ -9,7 +9,7 @@ source of study is the `mysurl1` go-zero short-link service; the goal was to
 - **Documented layer boundaries.** Each layer answers one question (config =
   what is configurable, schema = what the API exchanges, model = one row, dao =
   how data is stored, business = when/why, handler = how HTTP enters, middleware =
-  cross-cutting, svc = how deps assemble, utils = reused generics).
+  cross-cutting, svc = how deps assemble, common = reused building blocks).
 - **Thin handlers.** Fixed shape: parse → new business → call → unified write.
 - **Logic constructor pattern** `(ctx, svcCtx)`; methods orchestrate
   validate → cache → dao → assemble.
@@ -80,16 +80,16 @@ Login and protected read (`POST /api/v1/login`, `GET /api/v1/me`):
 POST /api/v1/login:
   RequestID -> AccessLog -> Recovery -> handler.Login.bind
     -> business.Login (dao lookup + timing-equalized bcrypt compare) -> JWTManager.Issue
-    -> response.OK {access_token, user}
+    -> common.OK {access_token, user}
 
 GET /api/v1/me:
   RequestID -> AccessLog -> Recovery -> middleware.Auth (verify Bearer + set claims)
-    -> handler.Me (CurrentClaims) -> response.OK {id, username}
+    -> handler.Me (CurrentClaims) -> common.OK {id, username}
 <- AccessLog logs status + request_id (+ user_id when authenticated)
 
 Unknown route / wrong method:
   RequestID -> AccessLog -> Recovery -> NoRoute/NoMethod
-    -> response.Fail (40400 / 40500)
+    -> common.Fail (40400 / 40500)
 ```
 
 ## 7. Roadmap

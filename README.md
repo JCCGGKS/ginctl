@@ -14,7 +14,7 @@ layers for your own storage.
 - `X-Forwarded-For` is never trusted; `ClientIP` uses the direct socket address.
 - Interface-based data access: `internal/dao` contract + MySQL/GORM implementation.
 - Config files with an explicit `server.env: dev|test|prod` setting.
-- MySQL client plus optional Redis client with connection pools, startup ping, and graceful close.
+- MySQL client plus optional Redis-backed cache with connection pools, startup ping, and graceful close.
 
 ## Layout
 
@@ -28,9 +28,11 @@ internal/
   handler/                health, auth login, me (thin HTTP adapters)
   business/                  auth login (business orchestration)
   dao/                    DAO registry + interfaces + GORM implementations
+  cache/                  application cache wrapper around the optional Redis client
+  errors/                 domain-specific sentinel errors
   schema/                 request/response DTOs
 common/                   public packages shared across services
-  errors/                 error types, business codes, and sentinel errors
+  errors/                 AppError, business codes, and constructors
   logger/                 per-module zap loggers + daily rotation + gorm adapter + request_id context
   middleware/             requestid, accesslog, recovery, auth (JWT)
   model/                  storage-side structs (db tags)
@@ -96,8 +98,9 @@ connection is a startup error rather than a deferred request failure.
 
 Redis is opened with `go-redis`, configured with the pool and timeout values in
 YAML, and pinged during startup. If the ping fails, startup continues with
-`ServiceContext.Redis == nil`; no route currently uses Redis, and it remains
-available for future shared state such as sessions or counters.
+an unavailable `ServiceContext.Cache`; no route currently uses the cache, and
+the cache layer remains available for future shared state such as sessions or
+counters.
 
 `config.MySQLConf.DSN()` uses `parseTime=true`, local timezone interpretation,
 a 5s dial timeout, and 30s read/write timeouts. `config.RedisConf.Addr()` is

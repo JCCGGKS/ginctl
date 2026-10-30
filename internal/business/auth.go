@@ -9,8 +9,8 @@ import (
 	"errors"
 	"fmt"
 
-	apperrors "gin-scaffold/common/errors"
 	"gin-scaffold/common/logger"
+	bizerrors "gin-scaffold/internal/errors"
 	"gin-scaffold/internal/schema"
 	"gin-scaffold/internal/svc"
 
@@ -41,13 +41,13 @@ func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, e
 
 	user, err := l.svcCtx.DAO.User.FindByUsername(l.ctx, req.Username)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrUserNotFound) {
+		if errors.Is(err, bizerrors.ErrUserNotFound) {
 			_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(req.Password))
 			logger.App().Warn(l.ctx, "login rejected",
 				zap.String("username", req.Username),
 				zap.String("reason", "invalid_credentials"),
 			)
-			return nil, apperrors.ErrInvalidCredentials
+			return nil, bizerrors.ErrInvalidCredentials
 		}
 		logger.App().Error(l.ctx, "login user lookup failed", zap.String("username", req.Username), zap.Error(err))
 		return nil, fmt.Errorf("query user: %w", err)
@@ -58,7 +58,7 @@ func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, e
 			zap.String("username", req.Username),
 			zap.String("reason", "invalid_credentials"),
 		)
-		return nil, apperrors.ErrInvalidCredentials
+		return nil, bizerrors.ErrInvalidCredentials
 	}
 
 	accessToken, expiresAt, err := l.svcCtx.JWTManager.Issue(user.ID, user.Username)

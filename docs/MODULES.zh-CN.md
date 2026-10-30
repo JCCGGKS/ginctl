@@ -26,9 +26,11 @@
 │   ├── handler/               HTTP 适配层
 │   ├── business/              业务编排和业务错误
 │   ├── dao/                   数据访问接口和 GORM 实现
+│   ├── cache/                 应用缓存层，封装可选 Redis 客户端
+│   ├── errors/                本业务域 sentinel error
 │   └── schema/                HTTP 请求/响应 DTO
-├── common/                     公共包：可跨服务复用的通用能力（不承载业务）
-│   ├── errors/                AppError、业务错误码、共享 sentinel error
+├── common/                     公共包：跨服务共享的通用能力与表模型
+│   ├── errors/                AppError、业务错误码和构造器
 │   ├── logger/                分模块 zap 日志、按天/固定文件、GORM 适配、request_id context
 │   ├── middleware/            请求 ID、鉴权、访问日志、恢复等
 │   ├── model/                 存储侧模型
@@ -43,16 +45,18 @@
 |---|---|---|
 | 进程入口 | `main.go` | 解析环境/配置、初始化日志、装配依赖、启动和关闭 HTTP Server |
 | 配置 | `internal/config/config.go` | 配置结构、默认值、Viper 加载、启动前校验 |
-| 依赖装配 | `internal/svc/service_context.go` | 构造 JWT manager、DAO 等共享依赖 |
-| 路由 | `internal/router/*.go` | Gin 引擎、中间件顺序、公开/受保护路由、404/405 |
+| 依赖装配 | `internal/svc/service_context.go` | 构造 JWT manager、DAO、Cache 等共享依赖 |
+| 路由 | `internal/router/router.go` | Gin 引擎、中间件顺序、公开/受保护路由、404/405 |
 | 中间件 | `common/middleware/*.go` | 请求 ID、访问日志、panic 恢复、JWT 鉴权 |
 | 处理器 | `internal/handler/*.go` | 绑定 HTTP 输入、调用业务、输出统一响应 |
 | 业务 | `internal/business/*.go` | 登录编排、凭证校验、错误语义、业务日志 |
 | DAO | `internal/dao/**` | 统一注册 DAO，定义持久化接口并提供 MySQL/GORM 实现 |
+| 缓存 | `internal/cache/cache.go` | 封装可选 Redis 客户端，向业务暴露应用级 Cache |
+| 业务错误 | `internal/errors/errors.go` | 本业务域 sentinel error |
 | 存储模型 | `common/model/user.go` | 存储侧用户行结构 |
 | API DTO | `internal/schema/auth.go` | HTTP 请求和响应结构 |
 | 公共工具 | `common/*.go` | 统一响应、JWT、分页等可跨服务复用的通用能力 |
-| 错误定义 | `common/errors/errors.go` | AppError、业务错误码、业务/DAO sentinel error |
+| 通用错误 | `common/errors/errors.go` | AppError、业务错误码和构造器 |
 | 日志 | `common/logger/*.go` | 模块 logger、按日文件、request_id 注入、GORM 适配 |
 | 请求 ID | `common/logger/requestid.go` | 在 `context.Context` 中保存和读取请求 ID |
 | 统一响应 | `common/response.go` | 响应 envelope、错误映射为 HTTP 响应、错误日志 |
@@ -66,7 +70,8 @@ main
  ├── config ──────── common/logger
  ├── common/logger
  ├── svc ────────┬── dao ──────── gorm.io/gorm
- │               ├── redis ────── go-redis
+ │               ├── cache ────── go-redis
+ │               ├── internal/errors
  │               └── common / common/logger
  └── router
       ├── common/middleware ──── common / common/logger
@@ -83,7 +88,7 @@ main
 | `svc` | 构造和共享依赖 | 业务流程 |
 | `common` | 可跨服务复用的通用公共能力 | 依赖 `internal/*` 业务模块 |
 
-当前 `common` 只依赖标准库、第三方库和 `common/logger`，不导入任何 `internal/*` 业务模块，方向保持正确。业务层通过 `svc.ServiceContext` 获取 DAO 和 JWT manager，这是当前骨架的核心装配方式。
+当前 `common` 只依赖标准库、第三方库和 `common/logger`，不导入任何 `internal/*` 业务模块，方向保持正确。业务层通过 `svc.ServiceContext` 获取 DAO、Cache 和 JWT manager，这是当前骨架的核心装配方式。
 
 ## 3. 进程入口与生命周期
 
@@ -154,7 +159,7 @@ CLI 只保留 `-f`，默认值为 `etc/config_dev.yaml`。环境由配置文件�
 ### 审查关注
 
 - dev/test 配置包含演示 secret；只能用于本地或测试，不能复用到真实环境。
-- MySQL 和 Redis 配置都已被 `svc` 消费；MySQL 连接失败会阻止进程启动，Redis 连接失败只记录 warning 并让 `ServiceContext.Redis` 保持 `nil`。
+- MySQL 和 Redis 配置都已被 `svc` 消费；MySQL 连接失败会阻止进程启动，Redis 连接失败只记录 warning，并让 `ServiceContext.Cache` 处于不可用状态。
 - `MySQLConf.DSN` 固定 `parseTime=true&loc=Local`，并包含 5 秒拨号超时、30 秒读超时和 30 秒写超时；当前没有 TLS 参数，生产启用 TLS 时需要扩展 DSN。
 - `X-Forwarded-For` 固定不信任，`ClientIP` 始终使用直连地址；如果后续部署在反向代理后并需要真实客户端 IP，需要重新引入可信代理配置。
 
@@ -169,8 +174,7 @@ type ServiceContext struct {
     Config       *config.Config
     JWTManager   *common.JWTManager
     DAO          *dao.Registry
-    DB           *gorm.DB
-    Redis        *redis.Client
+    Cache        *cache.Cache
 }
 ```
 
@@ -179,20 +183,21 @@ type ServiceContext struct {
 - 拒绝空配置。
 - 要求 `auth.jwtSecret` 非空，属于入口校验前的防御性检查。
 - 调用 `openDatabase` 打开 MySQL：使用 GORM MySQL dialector，注入 `gorm` 模块 logger，设置连接池上限、生命周期和空闲时间，并在启动阶段 ping。
-- 调用 `openRedis` 尝试打开 Redis：设置密码、DB、连接池、拨号和读写超时，并在启动阶段 ping；失败时记录 warning、关闭临时客户端并保持 `ServiceContext.Redis == nil`，不会关闭 MySQL。
+- 调用 `openRedis` 尝试打开 Redis：设置密码、DB、连接池、拨号和读写超时，并在启动阶段 ping；失败时记录 warning、关闭临时客户端，并用不可用状态构造 `ServiceContext.Cache`，不会关闭 MySQL。
 - 构造 `dao.NewRegistry(db)`，所有 DAO 从这里统一获取。
+- 用 Redis 客户端构造 `cache.New(redisClient)`；业务只依赖 Cache 层，不直接持有 `*redis.Client`。
 - 用配置构造 `common.JWTManager`。
-- 提供幂等的 `Close()`，关闭底层 `*sql.DB` 和 Redis 客户端。
+- 提供幂等的 `Close()`，关闭底层 `*sql.DB` 和 Cache 持有的客户端。
 
 ### 审查关注
 
 - 这里是继续接入外部客户端和更多 DAO 的最佳位置。
-- MySQL 连接失败会阻止进程启动；Redis 连接失败不会阻止启动，调用方在使用 `ServiceContext.Redis` 前必须容忍其为 `nil`。当前没有路由消费 Redis。
+- MySQL 连接失败会阻止进程启动；Redis 连接失败不会阻止启动，调用方在使用 `ServiceContext.Cache` 前需要通过 `Available()` 判断可用性。当前没有路由消费 Cache。
 - 如果后续增加更多需要关闭的资源，应纳入 `ServiceContext.Close()`，并在 `main.go` 的 defer 中统一释放。
 
 ## 6. 路由模块
 
-文件：`internal/router/router.go`、`internal/router/routes.go`
+文件：`internal/router/router.go`
 
 ### 全局中间件顺序
 
@@ -247,7 +252,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 - `ClientIP` 使用直连地址，部署在反向代理后需要重新评估真实 IP 获取方式。
 - 外部传入的 `X-Request-Id` 当前没有长度和字符白名单校验。若直接暴露公网，建议限制长度，或在不受信任场景强制生成服务端 ID。
 - JWT 是无状态校验，没有 JWT 撤销、黑名单、刷新和登出语义。
-- `Recovery` 会先记录一次 `panic recovered`，随后 `response.Fail` 还会记录一次 5xx 的 `request failed`，同一 panic 可能产生两条 app error 日志。
+- `Recovery` 会先记录一次 `panic recovered`，随后 `common.Fail` 还会记录一次 5xx 的 `request failed`，同一 panic 可能产生两条 app error 日志。
 
 ## 8. HTTP 处理器模块
 
@@ -263,9 +268,9 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 2. 绑定失败返回 400。
 3. 构造 `business.NewAuthBusiness(c.Request.Context(), svcCtx)` 并调用 `Login`。
 4. 按错误类型映射：
-   - `errors.ErrInvalidCredentials` -> 401，不暴露用户不存在或密码错误。
+   - `internal/errors.ErrInvalidCredentials` -> 401，不暴露用户不存在或密码错误。
    - context 取消/超时 -> 408。
-   - 其他错误 -> `response.Fail`，未知错误降级为统一 500。
+   - 其他错误 -> `common.Fail`，未知错误降级为统一 500。
 
 ### 当前用户处理器
 
@@ -285,7 +290,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 ### 审查关注
 
 - 登录输入目前只有 `required`，没有用户名/密码长度、格式和最大长度约束。
-- handler 没有直接写业务错误文案，错误映射集中在 `response` 和少量 switch 中，边界清晰。
+- handler 没有直接写业务错误文案，错误映射集中在 `common` 和少量 switch 中，边界清晰。
 - `/api/v1/me` 信任 JWT claims 中的身份；如果引入用户禁用、角色变更等实时状态，需要重新设计为查询会话或用户状态。
 
 ## 9. 业务模块
@@ -309,7 +314,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 
 ### 错误语义
 
-`errors.ErrInvalidCredentials` 同时表示“用户不存在”和“密码错误”，handler 统一映射为 401，避免客户端枚举账号。
+`internal/errors.ErrInvalidCredentials` 同时表示“用户不存在”和“密码错误”，handler 统一映射为 401，避免客户端枚举账号。
 
 ### 业务日志
 
@@ -337,7 +342,7 @@ type UserDAO interface {
 ```
 
 - 业务层只依赖接口。
-- `ErrUserNotFound` 是共享 sentinel error，定义在 `common/errors`。
+- `ErrUserNotFound` 是本业务域 sentinel error，定义在 `internal/errors`。
 - 数据库实现与接口同位于 `internal/dao/user.go`，由 `dao.Registry` 统一构造并通过 `svc` 注入。
 
 ### DAO 注册表
@@ -353,7 +358,7 @@ type UserDAO interface {
 
 - `GormUserDAO` 持有 `*gorm.DB`，由 `NewUserDAO` 构造，并实现 `UserDAO` 接口。
 - `FindByUsername` 使用 `db.WithContext(ctx)` 执行参数化查询，保证查询能被请求取消，并让 GORM 日志拿到同一个 `request_id`。
-- `gorm.ErrRecordNotFound` 转换为 `errors.ErrUserNotFound`，其他数据库错误带上下文返回。
+- `gorm.ErrRecordNotFound` 转换为 `internal/errors.ErrUserNotFound`，其他数据库错误带上下文返回。
 - 不记录明文密码、密码哈希或 JWT。
 
 ### 表结构
@@ -445,11 +450,11 @@ type UserDAO interface {
 - 使用私有 context key 保存请求 ID。
 - 不依赖 Gin 或 `internal/*`。
 - `RequestID` 中间件同时维护 Gin context、request context 和 `X-Request-Id` 响应头，三者可互相兼容。
-- `response` 的 RequestID 辅助函数和 `logger` 都从同一个 request context 读取 ID。
+- `common.RequestID` 和 `logger` 都从同一个 request context 读取 ID。
 
 ### 12.3 统一响应与错误
 
-文件：`common/response.go`、`common/errors/errors.go`
+文件：`common/response.go`、`common/errors/errors.go`、`internal/errors/errors.go`
 
 成功响应：
 
@@ -518,7 +523,7 @@ POST /api/v1/login
             -> bcrypt 校验
             -> JWTManager.Issue
             -> app 日志（业务事件）
-       -> response.OK
+       -> common.OK
   -> AccessLog 写 access 日志
 ```
 
@@ -535,7 +540,7 @@ GET /api/v1/me
        -> 写入 claims
   -> handler.Me
        -> 读取 claims
-       -> response.OK
+       -> common.OK
   -> AccessLog（鉴权成功时附带 user_id）
 ```
 
@@ -543,7 +548,7 @@ GET /api/v1/me
 
 ```text
 RequestID -> AccessLog -> Recovery -> NoRoute / NoMethod
-  -> response.Fail
+  -> common.Fail
   -> AccessLog
 ```
 
@@ -568,7 +573,7 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 
 ### 数据与持久化
 
-- MySQL 已接入 GORM、连接池、启动 ping 和关闭逻辑；Redis 已接入客户端、连接池、启动 ping 和关闭逻辑，但它是可选依赖，连接失败只记录 warning，且当前没有路由使用 Redis。
+- MySQL 已接入 GORM、连接池、启动 ping 和关闭逻辑；Cache 层已接 Redis 客户端、连接池、启动 ping 和关闭逻辑，但它是可选依赖，连接失败只记录 warning，且当前没有路由使用 Cache。
 - 用户表需要先执行 `migrations/001_create_users.sql`，且没有内置种子账号。
 - 没有事务、锁、软删除、迁移工具和查询超时封装；当前只有一条按用户名查询。
 
@@ -596,7 +601,7 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 建议按以下顺序审查当前骨架：
 
 1. **启动链路是否正确**：`main.go` 的配置加载、日志初始化、校验、服务装配、信号关闭顺序。
-2. **配置是否符合部署方式**：环境变量名、prod secret、trusted proxies、日志目录和超时。
+2. **配置是否符合部署方式**：环境变量名、prod secret、真实客户端 IP 策略、日志目录和超时。
 3. **分层依赖是否越界**：handler 是否只做适配，business 是否直接操作 HTTP，`common` 是否反向依赖 `internal/*`。
 4. **认证与错误语义是否安全**：账号枚举、JWT 校验、401 文案、未知错误是否泄露内部信息。
 5. **中间件顺序是否正确**：RequestID、AccessLog、Recovery 和鉴权的作用范围。

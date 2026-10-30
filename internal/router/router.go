@@ -8,6 +8,7 @@ import (
 	apperrors "gin-scaffold/common/errors"
 	"gin-scaffold/common/logger"
 	"gin-scaffold/common/middleware"
+	"gin-scaffold/internal/handler"
 	"gin-scaffold/internal/svc"
 )
 
@@ -43,4 +44,17 @@ func New(svcCtx *svc.ServiceContext) *gin.Engine {
 	})
 
 	return engine
+}
+
+// registerRoutes wires every HTTP route. Public and protected groups are
+// declared explicitly so the wiring is easy to read, override, and test.
+func registerRoutes(engine *gin.Engine, svcCtx *svc.ServiceContext) {
+	engine.GET("/healthz", handler.Health)
+
+	authHandler := handler.NewAuthHandler(svcCtx)
+	v1 := engine.Group("/api/v1")
+	v1.POST("/login", authHandler.Login)
+
+	protected := engine.Group("/api/v1", middleware.Auth(svcCtx.JWTManager))
+	protected.GET("/me", authHandler.Me)
 }

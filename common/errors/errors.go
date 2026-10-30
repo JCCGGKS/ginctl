@@ -1,9 +1,8 @@
-// Package errors defines application errors, business codes, and sentinel
-// errors shared by the service layers.
+// Package errors defines the shared AppError type, business codes, and
+// constructors. Domain-specific sentinel errors live in internal/errors.
 package errors
 
 import (
-	stderrors "errors"
 	"net/http"
 )
 
@@ -16,16 +15,6 @@ const (
 	CodeMethodNotAllowed = 40500
 	CodeTimeout          = 40800
 	CodeInternal         = 50000
-)
-
-var (
-	// ErrUserNotFound is returned when a user lookup has no match.
-	ErrUserNotFound = stderrors.New("user not found")
-
-	// ErrInvalidCredentials is returned for both unknown users and wrong
-	// passwords. Handlers map it to a single public 401 response so callers
-	// cannot distinguish account existence.
-	ErrInvalidCredentials = stderrors.New("invalid credentials")
 )
 
 // AppError is a typed error carrying an HTTP status and an independent business

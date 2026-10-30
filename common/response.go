@@ -1,7 +1,8 @@
 // Package common holds cross-cutting building blocks shared by the HTTP and
 // application layers: the unified response envelope, JWT handling, and
-// pagination helpers. Error definitions live in common/errors; request-id
-// context helpers live in common/logger.
+// pagination helpers. Transport errors live in common/errors, domain sentinel
+// errors live in internal/errors, and request-id context helpers live in
+// common/logger.
 //
 // Contract:
 //   - every JSON endpoint returns the same shape: {code,msg,data,...}
