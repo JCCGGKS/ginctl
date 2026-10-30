@@ -4,9 +4,9 @@ package router
 import (
 	"github.com/gin-gonic/gin"
 
-	"gin-scaffold/infra"
-	"gin-scaffold/infra/logger"
-	"gin-scaffold/internal/middleware"
+	"gin-scaffold/common"
+	"gin-scaffold/common/logger"
+	"gin-scaffold/common/middleware"
 	"gin-scaffold/internal/svc"
 )
 
@@ -35,10 +35,10 @@ func New(svcCtx *svc.ServiceContext) *gin.Engine {
 	registerRoutes(engine, svcCtx)
 
 	engine.NoRoute(func(c *gin.Context) {
-		infra.Fail(c, infra.NotFound("resource not found"))
+		common.Fail(c, common.NotFound("resource not found"))
 	})
 	engine.NoMethod(func(c *gin.Context) {
-		infra.Fail(c, infra.MethodNotAllowed("method not allowed"))
+		common.Fail(c, common.MethodNotAllowed("method not allowed"))
 	})
 
 	return engine

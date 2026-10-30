@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"gin-scaffold/infra/logger"
+	"gin-scaffold/common/logger"
 	"gin-scaffold/internal/config"
 	"gin-scaffold/internal/router"
 	"gin-scaffold/internal/svc"

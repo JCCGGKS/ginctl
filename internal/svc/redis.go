@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"gin-scaffold/infra/logger"
+	"gin-scaffold/common/logger"
 	"gin-scaffold/internal/config"
 
 	"github.com/redis/go-redis/v9"

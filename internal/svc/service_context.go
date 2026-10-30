@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"gin-scaffold/infra"
-	"gin-scaffold/infra/logger"
+	"gin-scaffold/common"
+	"gin-scaffold/common/logger"
 	"gin-scaffold/internal/config"
 	"gin-scaffold/internal/dao"
 	gormdao "gin-scaffold/internal/dao/gorm"
@@ -25,7 +25,7 @@ import (
 // (DB, Redis, clients, DAOs) once here and share the pointers everywhere.
 type ServiceContext struct {
 	Config     *config.Config
-	JWTManager *infra.JWTManager
+	JWTManager *common.JWTManager
 	UserDAO    dao.UserDAO
 	DB         *gorm.DB
 	// Redis is optional and may be nil when the configured instance is
@@ -64,7 +64,7 @@ func NewServiceContext(c *config.Config) (*ServiceContext, error) {
 
 	return &ServiceContext{
 		Config:     c,
-		JWTManager: infra.NewJWTManager(secret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
+		JWTManager: common.NewJWTManager(secret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
 		UserDAO:    gormdao.NewUserDAO(db),
 		DB:         db,
 		Redis:      redisClient,

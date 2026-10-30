@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"gin-scaffold/infra"
-	"gin-scaffold/infra/logger"
+	"gin-scaffold/common"
+	"gin-scaffold/common/logger"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -18,7 +18,7 @@ func Recovery() gin.HandlerFunc {
 					zap.Any("error", r),
 					zap.String("path", c.Request.URL.Path),
 				)
-				infra.Fail(c, infra.Internal("internal server error"))
+				common.Fail(c, common.Internal("internal server error"))
 				c.Abort()
 			}
 		}()

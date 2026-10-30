@@ -12,7 +12,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"gin-scaffold/infra/logger"
+	"gin-scaffold/common/logger"
 
 	"github.com/spf13/viper"
 )

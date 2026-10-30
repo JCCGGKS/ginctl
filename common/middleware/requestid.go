@@ -4,8 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 
-	"gin-scaffold/infra"
-	"gin-scaffold/infra/logger"
+	"gin-scaffold/common"
+	"gin-scaffold/common/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,7 +20,7 @@ func RequestID() gin.HandlerFunc {
 		if id == "" {
 			id = generateID()
 		}
-		infra.SetRequestID(c, id)
+		common.SetRequestID(c, id)
 		ctx := logger.WithRequestID(c.Request.Context(), id)
 		c.Request = c.Request.WithContext(ctx)
 		c.Header(headerRequestID, id)

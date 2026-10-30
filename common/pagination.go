@@ -1,4 +1,4 @@
-package infra
+package common
 
 const (
 	DefaultPage     = 1

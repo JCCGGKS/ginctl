@@ -7,7 +7,7 @@
 ## 0. 快速结论
 
 - 项目是一个 Gin 服务骨架，启动时依赖可用的 MySQL；Redis 是可选依赖，连接失败只会记录 warning，不阻断启动。
-- 分层主线清晰：`handler -> business -> dao`，`middleware` 负责横切能力，`svc` 负责依赖装配，`infra` 放通用基础设施。
+- 分层主线清晰：`handler -> business -> dao`，`middleware` 负责横切能力，`svc` 负责依赖装配，`common` 放可复用的通用公共能力。
 - 启动流程包含配置加载、配置校验、日志初始化、依赖装配、路由构建、HTTP 服务和优雅关闭。
 - 已有能力：JWT 登录与鉴权、统一响应、错误码、访问日志、请求 ID、panic 恢复、三模块日志、可配置的按天切割、日志压缩和保留清理、MySQL 连接池、可选 Redis 连接池、启动 ping 和关闭逻辑。
 - 当前仍是骨架而非完整生产实现：用户表需要手动迁移，JWT 仍是单机无状态校验，没有刷新、撤销和黑名单。
@@ -23,14 +23,14 @@
 │   ├── config/                配置结构、默认值、加载、校验
 │   ├── svc/                   依赖注入容器 ServiceContext
 │   ├── router/                路由注册和全局中间件装配
-│   ├── middleware/            请求 ID、鉴权、访问日志、恢复等
 │   ├── handler/               HTTP 适配层
 │   ├── business/              业务编排和业务错误
 │   ├── dao/                   数据访问接口和 GORM 实现
-│   ├── model/                 存储侧模型
 │   └── schema/                HTTP 请求/响应 DTO
-├── infra/
+├── common/                     公共包：可跨服务复用的通用能力（不承载业务）
 │   ├── logger/                分模块 zap 日志、按天/固定文件、GORM 适配、request_id context
+│   ├── middleware/            请求 ID、鉴权、访问日志、恢复等
+│   ├── model/                 存储侧模型
 │   ├── response.go            统一响应包、AppError、业务码
 │   ├── jwt.go                 JWT 签发和校验
 │   └── pagination.go          分页归一化
@@ -44,31 +44,32 @@
 | 配置 | `internal/config/config.go` | 配置结构、默认值、Viper 加载、启动前校验 |
 | 依赖装配 | `internal/svc/service_context.go` | 构造 JWT manager、DAO 等共享依赖 |
 | 路由 | `internal/router/*.go` | Gin 引擎、中间件顺序、公开/受保护路由、404/405 |
-| 中间件 | `internal/middleware/*.go` | 请求 ID、访问日志、panic 恢复、JWT 鉴权 |
+| 中间件 | `common/middleware/*.go` | 请求 ID、访问日志、panic 恢复、JWT 鉴权 |
 | 处理器 | `internal/handler/*.go` | 绑定 HTTP 输入、调用业务、输出统一响应 |
 | 业务 | `internal/business/*.go` | 登录编排、凭证校验、错误语义、业务日志 |
 | DAO | `internal/dao/**` | 定义持久化接口，提供 MySQL/GORM 实现 |
-| 领域/存储模型 | `internal/model/user.go` | 存储侧用户行结构 |
+| 存储模型 | `common/model/user.go` | 存储侧用户行结构 |
 | API DTO | `internal/schema/auth.go` | HTTP 请求和响应结构 |
-| 日志 | `infra/logger/*.go` | 模块 logger、按日文件、request_id 注入、GORM 适配 |
-| 请求 ID | `infra/logger/requestid.go` | 在 `context.Context` 中保存和读取请求 ID |
-| 统一响应 | `infra/response.go` | 响应 envelope、AppError、业务码、错误日志 |
-| JWT | `infra/jwt.go` | HS256 JWT 签发、解析、Bearer 提取 |
-| 分页 | `infra/pagination.go` | page/size 和 id cursor 边界归一化 |
+| 公共工具 | `common/*.go` | 统一响应、JWT、分页等可跨服务复用的通用能力 |
+| 日志 | `common/logger/*.go` | 模块 logger、按日文件、request_id 注入、GORM 适配 |
+| 请求 ID | `common/logger/requestid.go` | 在 `context.Context` 中保存和读取请求 ID |
+| 统一响应 | `common/response.go` | 响应 envelope、AppError、业务码、错误日志 |
+| JWT | `common/jwt.go` | HS256 JWT 签发、解析、Bearer 提取 |
+| 分页 | `common/pagination.go` | page/size 和 id cursor 边界归一化 |
 
 ## 2. 依赖方向与分层规则
 
 ```text
 main
- ├── config
- ├── logger
+ ├── config ──────── common/logger
+ ├── common/logger
  ├── svc ────────┬── dao/gorm ─── gorm.io/gorm
  │               ├── redis ────── go-redis
- │               └── infra
+ │               └── common / common/logger
  └── router
-      ├── middleware ──── infra / logger
+      ├── common/middleware ──── common / common/logger
       └── handler ─────── business ──── dao / schema / svc
-                            └────────── logger
+                            └────────── common/logger
 ```
 
 | 层 | 应该负责 | 不应该负责 |
@@ -78,9 +79,9 @@ main
 | `dao` | 持久化接口和具体查询 | HTTP 解析、业务策略 |
 | `middleware` | 跨路由 HTTP 横切逻辑 | 具体业务规则 |
 | `svc` | 构造和共享依赖 | 业务流程 |
-| `infra` | 可复用的通用基础设施 | 反向依赖 `internal/*` |
+| `common` | 可跨服务复用的通用公共能力 | 依赖 `internal/*` 业务模块 |
 
-当前 `infra/*` 没有导入 `internal/*`，方向保持正确。业务层通过 `svc.ServiceContext` 获取 DAO 和 JWT manager，这是当前骨架的核心装配方式。
+当前 `common` 只依赖标准库、第三方库和 `common/logger`，不导入任何 `internal/*` 业务模块，方向保持正确。业务层通过 `svc.ServiceContext` 获取 DAO 和 JWT manager，这是当前骨架的核心装配方式。
 
 ## 3. 进程入口与生命周期
 
@@ -164,7 +165,7 @@ CLI 只保留 `-f`，默认值为 `etc/config_dev.yaml`。环境由配置文件�
 ```go
 type ServiceContext struct {
     Config       *config.Config
-    JWTManager   *infra.JWTManager
+    JWTManager   *common.JWTManager
     UserDAO      dao.UserDAO
     DB           *gorm.DB
     Redis        *redis.Client
@@ -178,7 +179,7 @@ type ServiceContext struct {
 - 调用 `openDatabase` 打开 MySQL：使用 GORM MySQL dialector，注入 `gorm` 模块 logger，设置连接池上限、生命周期和空闲时间，并在启动阶段 ping。
 - 调用 `openRedis` 尝试打开 Redis：设置密码、DB、连接池、拨号和读写超时，并在启动阶段 ping；失败时记录 warning、关闭临时客户端并保持 `ServiceContext.Redis == nil`，不会关闭 MySQL。
 - 构造 `gormdao.NewUserDAO(db)`，不再按环境切换 DAO 实现。
-- 用配置构造 `infra.JWTManager`。
+- 用配置构造 `common.JWTManager`。
 - 提供幂等的 `Close()`，关闭底层 `*sql.DB` 和 Redis 客户端。
 
 ### 审查关注
@@ -225,7 +226,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 
 ## 7. 中间件模块
 
-目录：`internal/middleware/`
+目录：`common/middleware/`
 
 | 中间件 | 文件 | 行为 | 失败输出 |
 |---|---|---|---|
@@ -356,7 +357,7 @@ type UserDAO interface {
 
 ### 模型
 
-文件：`internal/model/user.go`
+文件：`common/model/user.go`
 
 - `PasswordHash` 带 `json:"-"`，不会通过 JSON 输出。
 - 模型同时带 `db` 和 `gorm` tag，`TableName()` 固定为 `users`，避免类型重命名改变表名。
@@ -383,7 +384,7 @@ type UserDAO interface {
 
 ### 12.1 日志
 
-目录：`infra/logger/`
+目录：`common/logger/`
 
 当前使用一个 `log.rootDir` 配置，按模块创建三个独立 zap logger。`log.dailyRotate=true`（默认）时使用日期目录和日期文件：
 
@@ -407,7 +408,7 @@ type UserDAO interface {
 - `log.compress=true` 时，今天之前的已关闭 `.log` 文件会压缩为 `.gz`；固定文件模式跳过当前活动文件，因此需要配合大小分片才能持续压缩历史文件。
 - `log.level` 是三个模块共同的最低级别。
 - `log.format=json` 使用 JSON 编码；`console` 使用无颜色 console 编码写入文件。
-- 请求级日志方法接收 `context.Context`，通过 `infra/logger` 的 context 辅助函数自动补充 `request_id`。
+- 请求级日志方法接收 `context.Context`，通过 `common/logger` 的 context 辅助函数自动补充 `request_id`。
 - 初始化前或初始化失败时使用 stderr fallback logger，保证入口错误仍可见。
 - Gin 默认输出汇入 `access` 模块；`http.Server.ErrorLog` 仍属于应用内部错误，汇入 `app` 模块。
 - `NewGormLogger` 把业务侧 GORM 日志适配到 `gorm` 模块：普通 SQL 为 info，慢查询为 warn，失败为 error。
@@ -430,7 +431,7 @@ type UserDAO interface {
 
 ### 12.2 请求 ID
 
-文件：`infra/logger/requestid.go`
+文件：`common/logger/requestid.go`
 
 - 使用私有 context key 保存请求 ID。
 - 不依赖 Gin 或 `internal/*`。
@@ -439,7 +440,7 @@ type UserDAO interface {
 
 ### 12.3 统一响应与错误
 
-文件：`infra/response.go`
+文件：`common/response.go`
 
 成功响应：
 
@@ -474,7 +475,7 @@ type UserDAO interface {
 
 ### 12.4 JWT
 
-文件：`infra/jwt.go`
+文件：`common/jwt.go`
 
 - 使用 HS256。
 - `AuthClaims` 包含 `uid`、`username` 和标准 RegisteredClaims。
@@ -486,7 +487,7 @@ type UserDAO interface {
 
 ### 12.5 分页
 
-文件：`infra/pagination.go`
+文件：`common/pagination.go`
 
 - 页码分页：默认第 1 页、每页 10 条、最大 100 条，提供 `Offset()` 和 `Limit()`。
 - Cursor 分页：按递增 id 的方向提供 `LastID`、归一化后的 limit 和 `HasCursor()`。
@@ -587,7 +588,7 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 
 1. **启动链路是否正确**：`main.go` 的配置加载、日志初始化、校验、服务装配、信号关闭顺序。
 2. **配置是否符合部署方式**：环境变量名、prod secret、trusted proxies、日志目录和超时。
-3. **分层依赖是否越界**：handler 是否只做适配，business 是否直接操作 HTTP，infra 是否反向依赖 internal。
+3. **分层依赖是否越界**：handler 是否只做适配，business 是否直接操作 HTTP，`common` 是否反向依赖 `internal/*`。
 4. **认证与错误语义是否安全**：账号枚举、JWT 校验、401 文案、未知错误是否泄露内部信息。
 5. **中间件顺序是否正确**：RequestID、AccessLog、Recovery 和鉴权的作用范围。
 6. **日志是否能串联请求**：请求 ID 是否贯穿 access、app、gorm，敏感信息是否被排除。

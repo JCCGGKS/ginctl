@@ -25,14 +25,14 @@ internal/
   config/                 config structs + Load() + defaults (viper: defaults<file<env)
   svc/                    ServiceContext: dependency-injection container
   router/                 gin engine + global middleware + explicit routes
-  middleware/             requestid, accesslog, recovery, auth (JWT)
   handler/                health, auth login, me (thin HTTP adapters)
   business/                  auth login (business orchestration)
   dao/                    UserDAO interface + gorm/ implementation
-  model/                  storage-side structs (db tags)
   schema/                 request/response DTOs
-infra/
+common/                   public packages shared across services
   logger/                 per-module zap loggers + daily rotation + gorm adapter + request_id context
+  middleware/             requestid, accesslog, recovery, auth (JWT)
+  model/                  storage-side structs (db tags)
   response.go             unified envelope + AppError + business codes
   jwt.go                  JWT issue/parse (HS256 + custom claims)
   pagination.go           page/size + id cursor normalization
@@ -50,7 +50,7 @@ migrations/               SQL schema migrations
 | dao | "how is data stored/queried?" | parse HTTP / decide policy |
 | middleware | "what applies across routes?" | hold business rules |
 | svc | "how are deps assembled?" | hold business logic |
-| infra/* | "what generic thing is reused?" | import internal/* |
+| common/* | "what generic thing is reused?" | import internal/* feature modules |
 
 ## Run
 

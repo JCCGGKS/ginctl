@@ -1,20 +1,20 @@
-// Package infra holds cross-cutting building blocks shared by the HTTP and
+// Package common holds cross-cutting building blocks shared by the HTTP and
 // application layers: the unified response envelope, JWT handling, and
-// pagination helpers. Request-id context helpers live in infra/logger.
+// pagination helpers. Request-id context helpers live in common/logger.
 //
 // Contract:
 //   - every JSON endpoint returns the same shape: {code,msg,data,...}
 //   - business code 0 == success, non-zero == failure
 //   - handlers never hand-craft error payloads; they return an error and let
 //     Fail map it to an HTTP status + body
-package infra
+package common
 
 import (
 	"errors"
 	"net/http"
 	"time"
 
-	"gin-scaffold/infra/logger"
+	"gin-scaffold/common/logger"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

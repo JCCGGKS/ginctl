@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 
-	"gin-scaffold/internal/model"
+	"gin-scaffold/common/model"
 )
 
 // ErrUserNotFound is the sentinel returned when a lookup has no match.

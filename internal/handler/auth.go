@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"gin-scaffold/infra"
+	"gin-scaffold/common"
 	"gin-scaffold/internal/business"
 	"gin-scaffold/internal/schema"
 	"gin-scaffold/internal/svc"
@@ -28,7 +28,7 @@ func NewAuthHandler(svcCtx *svc.ServiceContext) *AuthHandler {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req schema.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		infra.Fail(c, infra.BadRequest("invalid request body"))
+		common.Fail(c, common.BadRequest("invalid request body"))
 		return
 	}
 
@@ -36,14 +36,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, business.ErrInvalidCredentials):
-			infra.Fail(c, infra.Unauthorized("username or password is invalid"))
+			common.Fail(c, common.Unauthorized("username or password is invalid"))
 		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-			infra.Fail(c, infra.Timeout("request cancelled"))
+			common.Fail(c, common.Timeout("request cancelled"))
 		default:
-			infra.Fail(c, err)
+			common.Fail(c, err)
 		}
 		return
 	}
 
-	infra.OK(c, resp)
+	common.OK(c, resp)
 }

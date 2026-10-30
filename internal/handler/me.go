@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"gin-scaffold/infra"
-	"gin-scaffold/internal/middleware"
+	"gin-scaffold/common"
+	"gin-scaffold/common/middleware"
 	"gin-scaffold/internal/schema"
 
 	"github.com/gin-gonic/gin"
@@ -12,11 +12,11 @@ import (
 func (h *AuthHandler) Me(c *gin.Context) {
 	claims := middleware.CurrentClaims(c)
 	if claims == nil {
-		infra.Fail(c, infra.Unauthorized("authorization JWT is invalid"))
+		common.Fail(c, common.Unauthorized("authorization JWT is invalid"))
 		return
 	}
 
-	infra.OK(c, schema.UserDTO{
+	common.OK(c, schema.UserDTO{
 		ID:       claims.UserID,
 		Username: claims.Username,
 	})

@@ -1,8 +1,8 @@
 package router
 
 import (
+	"gin-scaffold/common/middleware"
 	"gin-scaffold/internal/handler"
-	"gin-scaffold/internal/middleware"
 	"gin-scaffold/internal/svc"
 
 	"github.com/gin-gonic/gin"

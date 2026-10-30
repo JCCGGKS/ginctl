@@ -4,7 +4,7 @@
 package middleware
 
 import (
-	"gin-scaffold/infra"
+	"gin-scaffold/common"
 
 	"github.com/gin-gonic/gin"
 )
@@ -13,18 +13,18 @@ const ctxClaimsKey = "auth_claims"
 
 // Auth verifies the Bearer JWT and stores the claims on the gin context.
 // Protected handlers read identity via CurrentClaims(c).
-func Auth(tm *infra.JWTManager) gin.HandlerFunc {
+func Auth(tm *common.JWTManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		raw := infra.ExtractBearer(c.GetHeader("Authorization"))
+		raw := common.ExtractBearer(c.GetHeader("Authorization"))
 		if raw == "" {
-			infra.Fail(c, infra.Unauthorized("authorization JWT is required"))
+			common.Fail(c, common.Unauthorized("authorization JWT is required"))
 			c.Abort()
 			return
 		}
 
-		claims := &infra.AuthClaims{}
+		claims := &common.AuthClaims{}
 		if err := tm.ParseInto(raw, claims); err != nil {
-			infra.Fail(c, infra.Unauthorized("authorization JWT is invalid"))
+			common.Fail(c, common.Unauthorized("authorization JWT is invalid"))
 			c.Abort()
 			return
 		}
@@ -36,9 +36,9 @@ func Auth(tm *infra.JWTManager) gin.HandlerFunc {
 
 // CurrentClaims returns the authenticated JWT claims set by Auth, or nil when
 // the route was not protected.
-func CurrentClaims(c *gin.Context) *infra.AuthClaims {
+func CurrentClaims(c *gin.Context) *common.AuthClaims {
 	if v, ok := c.Get(ctxClaimsKey); ok {
-		if claims, ok := v.(*infra.AuthClaims); ok {
+		if claims, ok := v.(*common.AuthClaims); ok {
 			return claims
 		}
 	}

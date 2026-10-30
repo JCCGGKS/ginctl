@@ -3,7 +3,7 @@ package middleware
 import (
 	"time"
 
-	"gin-scaffold/infra/logger"
+	"gin-scaffold/common/logger"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

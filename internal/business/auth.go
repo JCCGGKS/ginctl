@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 
-	"gin-scaffold/infra/logger"
+	"gin-scaffold/common/logger"
 	"gin-scaffold/internal/dao"
 	"gin-scaffold/internal/schema"
 	"gin-scaffold/internal/svc"

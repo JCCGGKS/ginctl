@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"gin-scaffold/common/model"
 	"gin-scaffold/internal/dao"
-	"gin-scaffold/internal/model"
 
 	"gorm.io/gorm"
 )

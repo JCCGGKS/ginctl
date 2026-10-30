@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"gin-scaffold/infra/logger"
+	"gin-scaffold/common/logger"
 	"gin-scaffold/internal/config"
 
 	"go.uber.org/zap"
