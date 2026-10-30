@@ -2,6 +2,7 @@ package handler
 
 import (
 	"gin-scaffold/common"
+	apperrors "gin-scaffold/common/errors"
 	"gin-scaffold/common/middleware"
 	"gin-scaffold/internal/schema"
 
@@ -12,7 +13,7 @@ import (
 func (h *AuthHandler) Me(c *gin.Context) {
 	claims := middleware.CurrentClaims(c)
 	if claims == nil {
-		common.Fail(c, common.Unauthorized("authorization JWT is invalid"))
+		common.Fail(c, apperrors.Unauthorized("authorization JWT is invalid"))
 		return
 	}
 

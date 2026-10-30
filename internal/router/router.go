@@ -5,6 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gin-scaffold/common"
+	apperrors "gin-scaffold/common/errors"
 	"gin-scaffold/common/logger"
 	"gin-scaffold/common/middleware"
 	"gin-scaffold/internal/svc"
@@ -35,10 +36,10 @@ func New(svcCtx *svc.ServiceContext) *gin.Engine {
 	registerRoutes(engine, svcCtx)
 
 	engine.NoRoute(func(c *gin.Context) {
-		common.Fail(c, common.NotFound("resource not found"))
+		common.Fail(c, apperrors.NotFound("resource not found"))
 	})
 	engine.NoMethod(func(c *gin.Context) {
-		common.Fail(c, common.MethodNotAllowed("method not allowed"))
+		common.Fail(c, apperrors.MethodNotAllowed("method not allowed"))
 	})
 
 	return engine

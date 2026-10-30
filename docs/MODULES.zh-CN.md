@@ -28,11 +28,11 @@
 │   ├── dao/                   数据访问接口和 GORM 实现
 │   └── schema/                HTTP 请求/响应 DTO
 ├── common/                     公共包：可跨服务复用的通用能力（不承载业务）
-│   ├── errorcode/             共享业务错误哨兵
+│   ├── errors/                AppError、业务错误码、共享 sentinel error
 │   ├── logger/                分模块 zap 日志、按天/固定文件、GORM 适配、request_id context
 │   ├── middleware/            请求 ID、鉴权、访问日志、恢复等
 │   ├── model/                 存储侧模型
-│   ├── response.go            统一响应包、AppError、业务码
+│   ├── response.go            统一响应 envelope 与写响应逻辑
 │   ├── jwt.go                 JWT 签发和校验
 │   └── pagination.go          分页归一化
 ├── migrations/                MySQL 建表脚本
@@ -52,10 +52,10 @@
 | 存储模型 | `common/model/user.go` | 存储侧用户行结构 |
 | API DTO | `internal/schema/auth.go` | HTTP 请求和响应结构 |
 | 公共工具 | `common/*.go` | 统一响应、JWT、分页等可跨服务复用的通用能力 |
-| 错误定义 | `common/errorcode/errors.go` | 业务错误哨兵，供 business 返回、handler 映射 |
+| 错误定义 | `common/errors/errors.go` | AppError、业务错误码、业务/DAO sentinel error |
 | 日志 | `common/logger/*.go` | 模块 logger、按日文件、request_id 注入、GORM 适配 |
 | 请求 ID | `common/logger/requestid.go` | 在 `context.Context` 中保存和读取请求 ID |
-| 统一响应 | `common/response.go` | 响应 envelope、AppError、业务码、错误日志 |
+| 统一响应 | `common/response.go` | 响应 envelope、错误映射为 HTTP 响应、错误日志 |
 | JWT | `common/jwt.go` | HS256 JWT 签发、解析、Bearer 提取 |
 | 分页 | `common/pagination.go` | page/size 和 id cursor 边界归一化 |
 
@@ -263,7 +263,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 2. 绑定失败返回 400。
 3. 构造 `business.NewAuthBusiness(c.Request.Context(), svcCtx)` 并调用 `Login`。
 4. 按错误类型映射：
-   - `errorcode.ErrInvalidCredentials` -> 401，不暴露用户不存在或密码错误。
+   - `errors.ErrInvalidCredentials` -> 401，不暴露用户不存在或密码错误。
    - context 取消/超时 -> 408。
    - 其他错误 -> `response.Fail`，未知错误降级为统一 500。
 
@@ -309,7 +309,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 
 ### 错误语义
 
-`errorcode.ErrInvalidCredentials` 同时表示“用户不存在”和“密码错误”，handler 统一映射为 401，避免客户端枚举账号。
+`errors.ErrInvalidCredentials` 同时表示“用户不存在”和“密码错误”，handler 统一映射为 401，避免客户端枚举账号。
 
 ### 业务日志
 
@@ -337,7 +337,7 @@ type UserDAO interface {
 ```
 
 - 业务层只依赖接口。
-- `ErrUserNotFound` 是 DAO 层 sentinel error。
+- `ErrUserNotFound` 是共享 sentinel error，定义在 `common/errors`。
 - 数据库实现与接口同位于 `internal/dao/user.go`，由 `dao.Registry` 统一构造并通过 `svc` 注入。
 
 ### DAO 注册表
@@ -353,7 +353,7 @@ type UserDAO interface {
 
 - `GormUserDAO` 持有 `*gorm.DB`，由 `NewUserDAO` 构造，并实现 `UserDAO` 接口。
 - `FindByUsername` 使用 `db.WithContext(ctx)` 执行参数化查询，保证查询能被请求取消，并让 GORM 日志拿到同一个 `request_id`。
-- `gorm.ErrRecordNotFound` 转换为 `dao.ErrUserNotFound`，其他数据库错误带上下文返回。
+- `gorm.ErrRecordNotFound` 转换为 `errors.ErrUserNotFound`，其他数据库错误带上下文返回。
 - 不记录明文密码、密码哈希或 JWT。
 
 ### 表结构
@@ -449,7 +449,7 @@ type UserDAO interface {
 
 ### 12.3 统一响应与错误
 
-文件：`common/response.go`
+文件：`common/response.go`、`common/errors/errors.go`
 
 成功响应：
 
@@ -463,7 +463,7 @@ type UserDAO interface {
 }
 ```
 
-业务码是独立于 HTTP 状态的稳定命名空间：
+业务码定义在 `common/errors`，是独立于 HTTP 状态的稳定命名空间：
 
 | 业务码 | 含义 |
 |---|---|
@@ -477,8 +477,8 @@ type UserDAO interface {
 
 错误处理规则：
 
-- 已知 `*AppError` 保留 HTTP 状态和业务码。
-- 5xx 的 `AppError` 会写入 `app` error 日志。
+- 已知 `*errors.AppError` 保留 HTTP 状态和业务码。
+- 5xx 的 `errors.AppError` 会写入 `app` error 日志。
 - 未知错误统一降级为 `50000` 和通用文案，原始错误只写日志，不返回客户端。
 - 4xx 不写 app error 日志，由 access 日志记录访问结果。
 

@@ -5,6 +5,7 @@ package middleware
 
 import (
 	"gin-scaffold/common"
+	apperrors "gin-scaffold/common/errors"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,14 +18,14 @@ func Auth(tm *common.JWTManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := common.ExtractBearer(c.GetHeader("Authorization"))
 		if raw == "" {
-			common.Fail(c, common.Unauthorized("authorization JWT is required"))
+			common.Fail(c, apperrors.Unauthorized("authorization JWT is required"))
 			c.Abort()
 			return
 		}
 
 		claims := &common.AuthClaims{}
 		if err := tm.ParseInto(raw, claims); err != nil {
-			common.Fail(c, common.Unauthorized("authorization JWT is invalid"))
+			common.Fail(c, apperrors.Unauthorized("authorization JWT is invalid"))
 			c.Abort()
 			return
 		}

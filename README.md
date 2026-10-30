@@ -30,11 +30,11 @@ internal/
   dao/                    DAO registry + interfaces + GORM implementations
   schema/                 request/response DTOs
 common/                   public packages shared across services
-  errorcode/              shared sentinel errors
+  errors/                 error types, business codes, and sentinel errors
   logger/                 per-module zap loggers + daily rotation + gorm adapter + request_id context
   middleware/             requestid, accesslog, recovery, auth (JWT)
   model/                  storage-side structs (db tags)
-  response.go             unified envelope + AppError + business codes
+  response.go             unified response envelope and writers
   jwt.go                  JWT issue/parse (HS256 + custom claims)
   pagination.go           page/size + id cursor normalization
 docs/ARCHITECTURE.md      design rationale

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"gin-scaffold/common"
+	apperrors "gin-scaffold/common/errors"
 	"gin-scaffold/common/logger"
 
 	"github.com/gin-gonic/gin"
@@ -18,7 +19,7 @@ func Recovery() gin.HandlerFunc {
 					zap.Any("error", r),
 					zap.String("path", c.Request.URL.Path),
 				)
-				common.Fail(c, common.Internal("internal server error"))
+				common.Fail(c, apperrors.Internal("internal server error"))
 				c.Abort()
 			}
 		}()

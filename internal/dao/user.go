@@ -7,13 +7,11 @@ import (
 	"errors"
 	"fmt"
 
+	apperrors "gin-scaffold/common/errors"
 	"gin-scaffold/common/model"
 
 	"gorm.io/gorm"
 )
-
-// ErrUserNotFound is the sentinel returned when a lookup has no match.
-var ErrUserNotFound = errors.New("user not found")
 
 // UserDAO abstracts user persistence so business and handlers do not depend on
 // a concrete database client.
@@ -31,14 +29,14 @@ func NewUserDAO(db *gorm.DB) *GormUserDAO {
 	return &GormUserDAO{db: db}
 }
 
-// FindByUsername returns the matching user or ErrUserNotFound.
+// FindByUsername returns the matching user or errors.ErrUserNotFound.
 func (d *GormUserDAO) FindByUsername(ctx context.Context, username string) (*model.User, error) {
 	var user model.User
 	err := d.db.WithContext(ctx).
 		Where("username = ?", username).
 		Take(&user).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, ErrUserNotFound
+		return nil, apperrors.ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("find user by username: %w", err)

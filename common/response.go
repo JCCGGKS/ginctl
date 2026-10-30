@@ -1,6 +1,7 @@
 // Package common holds cross-cutting building blocks shared by the HTTP and
 // application layers: the unified response envelope, JWT handling, and
-// pagination helpers. Request-id context helpers live in common/logger.
+// pagination helpers. Error definitions live in common/errors; request-id
+// context helpers live in common/logger.
 //
 // Contract:
 //   - every JSON endpoint returns the same shape: {code,msg,data,...}
@@ -10,10 +11,11 @@
 package common
 
 import (
-	"errors"
+	stderrors "errors"
 	"net/http"
 	"time"
 
+	apperrors "gin-scaffold/common/errors"
 	"gin-scaffold/common/logger"
 
 	"github.com/gin-gonic/gin"
@@ -23,18 +25,6 @@ import (
 const (
 	CodeOK = 0
 	MsgOK  = "ok"
-)
-
-// Business codes are independent of HTTP status so clients can branch on one
-// stable namespace even as transport details change. Add more codes here as
-// the API grows.
-const (
-	CodeBadRequest       = 40000
-	CodeUnauthorized     = 40100
-	CodeNotFound         = 40400
-	CodeMethodNotAllowed = 40500
-	CodeTimeout          = 40800
-	CodeInternal         = 50000
 )
 
 // gin.Context key used to carry per-request metadata.
@@ -47,38 +37,6 @@ type Body struct {
 	Data      any    `json:"data"`
 	RequestID string `json:"request_id,omitempty"`
 	Timestamp int64  `json:"timestamp"`
-}
-
-// AppError is a typed error carrying an HTTP status and an independent business
-// code. Logic returns these; Fail turns them into responses.
-type AppError struct {
-	HTTPStatus int
-	Code       int
-	Msg        string
-}
-
-func (e *AppError) Error() string { return e.Msg }
-
-// NewAppError builds an AppError with an explicit status and business code.
-func NewAppError(httpStatus, code int, msg string) *AppError {
-	return &AppError{HTTPStatus: httpStatus, Code: code, Msg: msg}
-}
-
-func BadRequest(msg string) *AppError { return NewAppError(http.StatusBadRequest, CodeBadRequest, msg) }
-func Unauthorized(msg string) *AppError {
-	return NewAppError(http.StatusUnauthorized, CodeUnauthorized, msg)
-}
-func NotFound(msg string) *AppError {
-	return NewAppError(http.StatusNotFound, CodeNotFound, msg)
-}
-func MethodNotAllowed(msg string) *AppError {
-	return NewAppError(http.StatusMethodNotAllowed, CodeMethodNotAllowed, msg)
-}
-func Timeout(msg string) *AppError {
-	return NewAppError(http.StatusRequestTimeout, CodeTimeout, msg)
-}
-func Internal(msg string) *AppError {
-	return NewAppError(http.StatusInternalServerError, CodeInternal, msg)
 }
 
 // OK writes a success envelope with HTTP 200.
@@ -96,9 +54,9 @@ func OK(c *gin.Context, data any) {
 // *AppError keeps its status/code; anything else is logged and degraded to a
 // generic 500 so internal details are not leaked to the client.
 func Fail(c *gin.Context, err error) {
-	var appErr *AppError
-	if !errors.As(err, &appErr) {
-		appErr = Internal("internal server error")
+	var appErr *apperrors.AppError
+	if !stderrors.As(err, &appErr) {
+		appErr = apperrors.Internal("internal server error")
 		fields := errorFields(c, appErr)
 		fields = append(fields, zap.Error(err))
 		logger.App().Error(c.Request.Context(), "unhandled error", fields...)
@@ -117,7 +75,7 @@ func Fail(c *gin.Context, err error) {
 	})
 }
 
-func errorFields(c *gin.Context, appErr *AppError) []zap.Field {
+func errorFields(c *gin.Context, appErr *apperrors.AppError) []zap.Field {
 	return []zap.Field{
 		zap.String("method", c.Request.Method),
 		zap.String("path", c.Request.URL.Path),
