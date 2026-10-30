@@ -3,7 +3,6 @@ package middleware
 import (
 	"gin-scaffold/common"
 	"gin-scaffold/common/logger"
-	apperrors "gin-scaffold/internal/errors"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -11,7 +10,7 @@ import (
 
 // Recovery converts a panic into a unified 500 response instead of crashing
 // the connection, keeping the error contract consistent.
-func Recovery() gin.HandlerFunc {
+func Recovery(internal ErrorBuilder) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -19,7 +18,7 @@ func Recovery() gin.HandlerFunc {
 					zap.Any("error", r),
 					zap.String("path", c.Request.URL.Path),
 				)
-				common.Fail(c, apperrors.Internal("internal server error"))
+				common.Fail(c, internal("internal server error"))
 				c.Abort()
 			}
 		}()

@@ -28,32 +28,41 @@ type AppError struct {
 
 func (e *AppError) Error() string { return e.Msg }
 
+// HTTPStatusCode implements common.HTTPError.
+func (e *AppError) HTTPStatusCode() int { return e.HTTPStatus }
+
+// BusinessCode implements common.HTTPError.
+func (e *AppError) BusinessCode() int { return e.Code }
+
+// PublicMessage implements common.HTTPError.
+func (e *AppError) PublicMessage() string { return e.Msg }
+
 // NewAppError builds an AppError with an explicit status and business code.
 func NewAppError(httpStatus, code int, msg string) *AppError {
 	return &AppError{HTTPStatus: httpStatus, Code: code, Msg: msg}
 }
 
-func BadRequest(msg string) *AppError {
+func BadRequest(msg string) error {
 	return NewAppError(http.StatusBadRequest, CodeBadRequest, msg)
 }
 
-func Unauthorized(msg string) *AppError {
+func Unauthorized(msg string) error {
 	return NewAppError(http.StatusUnauthorized, CodeUnauthorized, msg)
 }
 
-func NotFound(msg string) *AppError {
+func NotFound(msg string) error {
 	return NewAppError(http.StatusNotFound, CodeNotFound, msg)
 }
 
-func MethodNotAllowed(msg string) *AppError {
+func MethodNotAllowed(msg string) error {
 	return NewAppError(http.StatusMethodNotAllowed, CodeMethodNotAllowed, msg)
 }
 
-func Timeout(msg string) *AppError {
+func Timeout(msg string) error {
 	return NewAppError(http.StatusRequestTimeout, CodeTimeout, msg)
 }
 
-func Internal(msg string) *AppError {
+func Internal(msg string) error {
 	return NewAppError(http.StatusInternalServerError, CodeInternal, msg)
 }
 

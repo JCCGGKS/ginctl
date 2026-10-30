@@ -86,7 +86,7 @@ main
 | `svc` | 构造和共享依赖 | 业务流程 |
 | `common` | 跨服务共享的通用 HTTP 与表模型能力 | 承载业务流程 |
 
-当前 `common` 只依赖标准库、第三方库、`common/logger` 和 `internal/errors`；`internal/errors` 只提供共享错误定义，不承载业务流程。业务层通过 `svc.ServiceContext` 获取 DAO、Cache 和 JWT manager，这是当前骨架的核心装配方式。
+当前 `common` 只依赖标准库、第三方库和 `common/logger`，不依赖 `internal/*`；`internal/errors` 通过实现 `common.HTTPError` 接口与响应层解耦，只提供共享错误定义，不承载业务流程。业务层通过 `svc.ServiceContext` 获取 DAO、Cache 和 JWT manager，这是当前骨架的核心装配方式。
 
 ## 3. 进程入口与生命周期
 
@@ -481,8 +481,8 @@ type UserDAO interface {
 
 错误处理规则：
 
-- 已知 `*internal/errors.AppError` 保留 HTTP 状态和业务码。
-- 5xx 的 `internal/errors.AppError` 会写入 `app` error 日志。
+- 实现 `common.HTTPError`（`HTTPStatusCode`、`BusinessCode`、`PublicMessage`）的错误保留 HTTP 状态和业务码；当前由 `*internal/errors.AppError` 实现。
+- 5xx 的 `common.HTTPError` 会写入 `app` error 日志。
 - 未知错误统一降级为 `50000` 和通用文案，原始错误只写日志，不返回客户端。
 - 4xx 不写 app error 日志，由 access 日志记录访问结果。
 

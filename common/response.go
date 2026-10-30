@@ -1,7 +1,8 @@
 // Package common holds cross-cutting building blocks shared by the HTTP and
 // application layers: the unified response envelope, JWT handling, and
-// pagination helpers. Application and domain errors live in internal/errors,
-// and request-id context helpers live in common/logger.
+// pagination helpers. Application and domain errors live in each service's
+// internal/errors package, and request-id context helpers live in
+// common/logger.
 //
 // Contract:
 //   - every JSON endpoint returns the same shape: {code,msg,data,...}
@@ -16,7 +17,6 @@ import (
 	"time"
 
 	"gin-scaffold/common/logger"
-	apperrors "gin-scaffold/internal/errors"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -25,7 +25,20 @@ import (
 const (
 	CodeOK = 0
 	MsgOK  = "ok"
+
+	fallbackCodeInternal = 50000
+	fallbackMsgInternal  = "internal server error"
 )
+
+// HTTPError is implemented by application errors that carry their own HTTP
+// status and business code. Keeping this as an interface lets common stay
+// independent from each service's internal/errors package.
+type HTTPError interface {
+	error
+	HTTPStatusCode() int
+	BusinessCode() int
+	PublicMessage() string
+}
 
 // gin.Context key used to carry per-request metadata.
 const ctxRequestIDKey = "request_id"
@@ -51,36 +64,45 @@ func OK(c *gin.Context, data any) {
 }
 
 // Fail maps an error to an HTTP status + unified error envelope. A known
-// *AppError keeps its status/code; anything else is logged and degraded to a
+// HTTPError keeps its status/code; anything else is logged and degraded to a
 // generic 500 so internal details are not leaked to the client.
 func Fail(c *gin.Context, err error) {
-	var appErr *apperrors.AppError
-	if !stderrors.As(err, &appErr) {
-		appErr = apperrors.Internal("internal server error")
-		fields := errorFields(c, appErr)
+	var httpErr HTTPError
+	if !stderrors.As(err, &httpErr) {
+		fields := errorFields(c, http.StatusInternalServerError, fallbackCodeInternal)
 		fields = append(fields, zap.Error(err))
 		logger.App().Error(c.Request.Context(), "unhandled error", fields...)
-	} else if appErr.HTTPStatus >= http.StatusInternalServerError {
-		fields := errorFields(c, appErr)
+		writeError(c, http.StatusInternalServerError, fallbackCodeInternal, fallbackMsgInternal)
+		return
+	}
+
+	status := httpErr.HTTPStatusCode()
+	code := httpErr.BusinessCode()
+	if status >= http.StatusInternalServerError {
+		fields := errorFields(c, status, code)
 		fields = append(fields, zap.Error(err))
 		logger.App().Error(c.Request.Context(), "request failed", fields...)
 	}
 
+	writeError(c, status, code, httpErr.PublicMessage())
+}
+
+func writeError(c *gin.Context, status, code int, msg string) {
 	c.Abort()
-	c.JSON(appErr.HTTPStatus, Body{
-		Code:      appErr.Code,
-		Msg:       appErr.Msg,
+	c.JSON(status, Body{
+		Code:      code,
+		Msg:       msg,
 		RequestID: RequestID(c),
 		Timestamp: time.Now().Unix(),
 	})
 }
 
-func errorFields(c *gin.Context, appErr *apperrors.AppError) []zap.Field {
+func errorFields(c *gin.Context, status, code int) []zap.Field {
 	return []zap.Field{
 		zap.String("method", c.Request.Method),
 		zap.String("path", c.Request.URL.Path),
-		zap.Int("status", appErr.HTTPStatus),
-		zap.Int("code", appErr.Code),
+		zap.Int("status", status),
+		zap.Int("code", code),
 	}
 }
 

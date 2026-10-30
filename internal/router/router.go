@@ -31,7 +31,7 @@ func New(svcCtx *svc.ServiceContext) *gin.Engine {
 	engine.Use(
 		middleware.RequestID(),
 		middleware.AccessLog(),
-		middleware.Recovery(),
+		middleware.Recovery(apperrors.Internal),
 	)
 
 	registerRoutes(engine, svcCtx)
@@ -55,6 +55,6 @@ func registerRoutes(engine *gin.Engine, svcCtx *svc.ServiceContext) {
 	v1 := engine.Group("/api/v1")
 	v1.POST("/login", authHandler.Login)
 
-	protected := engine.Group("/api/v1", middleware.Auth(svcCtx.JWTManager))
+	protected := engine.Group("/api/v1", middleware.Auth(svcCtx.JWTManager, apperrors.Unauthorized))
 	protected.GET("/me", authHandler.Me)
 }
