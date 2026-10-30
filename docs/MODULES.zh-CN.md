@@ -1,15 +1,15 @@
 # gin-scaffold 当前骨架模块梳理
 
-> 基线状态：当前工作区（已完成日志改造、MySQL + GORM、Redis 客户端接入；登录限流已移除）
+> 基线状态：当前工作区（已完成日志改造、MySQL + GORM、可选 Redis 客户端接入；登录限流已移除）
 >
 > 整理目标：按模块说明当前代码的职责、依赖边界、运行链路和审查重点。本文描述的是当前已实现状态，不把规划中的能力写成既有能力。
 
 ## 0. 快速结论
 
-- 项目是一个 Gin 服务骨架，启动时依赖可用的 MySQL 和 Redis。
+- 项目是一个 Gin 服务骨架，启动时依赖可用的 MySQL；Redis 是可选依赖，连接失败只会记录 warning，不阻断启动。
 - 分层主线清晰：`handler -> business -> dao`，`middleware` 负责横切能力，`svc` 负责依赖装配，`infra` 放通用基础设施。
 - 启动流程包含配置加载、配置校验、日志初始化、依赖装配、路由构建、HTTP 服务和优雅关闭。
-- 已有能力：JWT 登录与鉴权、统一响应、错误码、访问日志、请求 ID、panic 恢复、三模块日志、可配置的按天切割、日志压缩和保留清理、MySQL/Redis 连接池、启动 ping 和关闭逻辑。
+- 已有能力：JWT 登录与鉴权、统一响应、错误码、访问日志、请求 ID、panic 恢复、三模块日志、可配置的按天切割、日志压缩和保留清理、MySQL 连接池、可选 Redis 连接池、启动 ping 和关闭逻辑。
 - 当前仍是骨架而非完整生产实现：用户表需要手动迁移，JWT 仍是单机无状态校验，没有刷新、撤销和黑名单。
 - 日志已按 `app`、`gorm`、`access` 拆分，并通过 `request_id` 串联；业务内部日志统一写入 `app`，GORM 查询通过 `db.WithContext(ctx)` 写入 `gorm`，HTTP 请求和 Gin 输出写入 `access`。
 
@@ -91,21 +91,21 @@ main
 1. 解析 `-env`、`-c`、`-f` 参数，并允许 `ENV` 环境变量提供默认环境。
 2. 决定配置文件：显式 `-f` 优先，否则使用 `etc/config_<env>.yaml`。
 3. `config.Load`：默认值 < YAML 文件 < 环境变量。
-4. `logger.Init`：按 `log.rootDir` 初始化 `app/gorm/access` 三个 logger。
-5. `cfg.Validate`：拒绝端口、超时、JWT、日志等非法配置。
-6. `svc.NewServiceContext`：建立 MySQL 和 Redis 连接、执行启动 ping、设置连接池，构造 JWT manager 和 GORM UserDAO。
+4. `cfg.Validate`：拒绝非法环境、端口、JWT、日志等配置。
+5. `logger.Init`：按 `log.rootDir` 初始化 `app/gorm/access` 三个 logger。
+6. `svc.NewServiceContext`：建立 MySQL 连接并执行启动 ping；尝试建立 Redis 连接，失败时记录 warning 并继续；构造 JWT manager 和 GORM UserDAO。
 7. `router.New`：设置 Gin 模式、固定不信任代理、全局中间件和路由。
 8. 构造 `http.Server`，设置读、写、Header、空闲和优雅关闭超时。
 9. 监听 `SIGINT/SIGTERM`，在 goroutine 中启动 `ListenAndServe`。
-10. 收到信号或监听错误后，使用 `Shutdown` 做优雅关闭。
-11. `svc.ServiceContext.Close()` 关闭数据库和 Redis 连接池；最后 `logger.Close()` 刷新并关闭日志文件。
+10. 收到信号或监听错误后，使用 `Shutdown` 做优雅关闭，并等待监听 goroutine 退出；第二次信号可强制结束进程。
+11. `svc.ServiceContext.Close()` 关闭数据库和可用的 Redis 客户端；最后 `logger.Close()` 刷新并关闭日志文件。
 
 ### 审查关注
 
-- `config loaded` 日志发生在 `cfg.Validate` 之前；配置非法时仍会先记录一条“已加载”，最终错误由入口日志体现。
+- `cfg.Validate` 在 `logger.Init` 之前执行；配置非法时不会创建日志文件，错误由入口的 fallback logger 输出到 stderr。
 - `MaxHeaderBytes` 当前固定为 1 MiB，没有对应配置项。
 - 服务没有独立 readiness 检查；`/healthz` 是轻量 liveness 探针，不检查数据库、Redis 等外部依赖。
-- 优雅关闭超时固定为 10 秒（`main.go` 中的 `httpShutdownTimeout`），目前没有额外的后台任务等待逻辑。
+- 优雅关闭超时固定为 10 秒（`main.go` 中的 `httpShutdownTimeout`）；`Shutdown` 返回后等待监听 goroutine 退出，若关闭上下文已到期则记录 warning 并继续退出。
 
 ## 4. 配置模块
 
@@ -135,12 +135,13 @@ main
 | `auth` | jwtSecret、accessExpireSeconds | JWT 签发和有效期 |
 | `log` | rootDir、level、format、dailyRotate、timezone、maxSizeMB、maxAgeDays、compress | 日志根目录、级别、编码、按天开关、切日时区、大小分片、保留和压缩 |
 | `mysql` | 连接、库名、连接池、超时 | 建立 GORM 连接、启动 ping、连接池和优雅关闭 |
-| `redis` | 地址、密码、DB、连接池、超时 | 建立 go-redis 客户端、启动 ping、连接池和优雅关闭 |
+| `redis` | 地址、密码、DB、连接池、超时 | 尝试建立 go-redis 客户端、启动 ping、连接池和优雅关闭；失败不阻断启动 |
 
 ### 启动校验
 
 `Config.Validate` 会检查：
 
+- 环境名只能是 `dev`、`test`、`prod`。
 - 端口范围合法。
 - Gin mode 只能是 `debug`、`release`、`test`，prod 必须是 `release`。
 - JWT secret 必填；prod 长度至少 32 字节。
@@ -152,7 +153,7 @@ main
 ### 审查关注
 
 - dev/test 配置包含演示 secret；只能用于本地或测试，不能复用到真实环境。
-- MySQL 和 Redis 配置都已被 `svc` 消费；任一依赖连接失败都会阻止进程启动。
+- MySQL 和 Redis 配置都已被 `svc` 消费；MySQL 连接失败会阻止进程启动，Redis 连接失败只记录 warning 并让 `ServiceContext.Redis` 保持 `nil`。
 - `MySQLConf.DSN` 固定 `parseTime=true&loc=Local`，并包含 5 秒拨号超时、30 秒读超时和 30 秒写超时；当前没有 TLS 参数，生产启用 TLS 时需要扩展 DSN。
 - `X-Forwarded-For` 固定不信任，`ClientIP` 始终使用直连地址；如果后续部署在反向代理后并需要真实客户端 IP，需要重新引入可信代理配置。
 
@@ -177,7 +178,7 @@ type ServiceContext struct {
 - 拒绝空配置。
 - 要求 `auth.jwtSecret` 非空，属于入口校验前的防御性检查。
 - 调用 `openDatabase` 打开 MySQL：使用 GORM MySQL dialector，注入 `gorm` 模块 logger，设置连接池上限、生命周期和空闲时间，并在启动阶段 ping。
-- 调用 `openRedis` 打开 Redis：设置密码、DB、连接池、拨号和读写超时，并在启动阶段 ping；Redis 失败时会先关闭已建立的 MySQL 连接池。
+- 调用 `openRedis` 尝试打开 Redis：设置密码、DB、连接池、拨号和读写超时，并在启动阶段 ping；失败时记录 warning、关闭临时客户端并保持 `ServiceContext.Redis == nil`，不会关闭 MySQL。
 - 构造 `gormdao.NewUserDAO(db)`，不再按环境切换 DAO 实现。
 - 用配置构造 `infra.JWTManager`。
 - 提供幂等的 `Close()`，关闭底层 `*sql.DB` 和 Redis 客户端。
@@ -185,7 +186,7 @@ type ServiceContext struct {
 ### 审查关注
 
 - 这里是继续接入外部客户端和更多 DAO 的最佳位置。
-- MySQL 或 Redis 连接失败都会阻止进程启动，这是有意的 fail-fast，不会带着不可用的依赖开始接收流量。
+- MySQL 连接失败会阻止进程启动；Redis 连接失败不会阻止启动，调用方在使用 `ServiceContext.Redis` 前必须容忍其为 `nil`。当前没有路由消费 Redis。
 - 如果后续增加更多需要关闭的资源，应纳入 `ServiceContext.Close()`，并在 `main.go` 的 defer 中统一释放。
 
 ## 6. 路由模块
@@ -398,6 +399,7 @@ type UserDAO interface {
 
 关键实现：
 
+- `logger.Init(cfg.Log)` 直接接收 `logger.Config`，无需在入口逐字段搬运配置。
 - 每个模块一个独立 `*zap.Logger` 和一个独立 core。
 - 所有 logger 共享同一个 rootDir，不暴露独立路径配置。
 - `dailyRotate=true` 时，`dailyWriter` 使用 `log.timezone` 检查日期，跨天后自动关闭旧文件并打开新日期文件；`false` 时不再按日期切换，启动和大小轮转时选择可追加的最新固定分片。
@@ -558,7 +560,7 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 
 ### 数据与持久化
 
-- MySQL 已接入 GORM、连接池、启动 ping 和关闭逻辑；Redis 已接入客户端、连接池、启动 ping 和关闭逻辑，但当前没有路由使用 Redis。
+- MySQL 已接入 GORM、连接池、启动 ping 和关闭逻辑；Redis 已接入客户端、连接池、启动 ping 和关闭逻辑，但它是可选依赖，连接失败只记录 warning，且当前没有路由使用 Redis。
 - 用户表需要先执行 `migrations/001_create_users.sql`，且没有内置种子账号。
 - 没有事务、锁、软删除、迁移工具和查询超时封装；当前只有一条按用户名查询。
 
