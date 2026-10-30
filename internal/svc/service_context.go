@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"gin-scaffold/infra/token"
+	"gin-scaffold/infra"
 	"gin-scaffold/internal/config"
 	"gin-scaffold/internal/dao"
 	gormdao "gin-scaffold/internal/dao/gorm"
@@ -22,7 +22,7 @@ import (
 // (DB, Redis, clients, DAOs) once here and share the pointers everywhere.
 type ServiceContext struct {
 	Config       *config.Config
-	TokenManager *token.Manager
+	TokenManager *infra.Manager
 	UserDAO      dao.UserDAO
 	DB           *gorm.DB
 	Redis        *redis.Client
@@ -55,7 +55,7 @@ func NewServiceContext(c *config.Config) (*ServiceContext, error) {
 
 	return &ServiceContext{
 		Config:       c,
-		TokenManager: token.NewManager(secret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
+		TokenManager: infra.NewManager(secret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
 		UserDAO:      gormdao.NewUserDAO(db),
 		DB:           db,
 		Redis:        redisClient,

@@ -1,7 +1,4 @@
-// Package pagination centralizes page/size normalization so every list
-// endpoint shares the same defaults and upper bound (from the reference
-// project's utils/pagination.go).
-package pagination
+package infra
 
 const (
 	DefaultPage     = 1

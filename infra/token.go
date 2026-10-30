@@ -1,6 +1,4 @@
-// Package token issues and verifies stateless JWT access tokens.
-// Extracted from the reference project's utils/auth.go (HS256 + custom claims).
-package token
+package infra
 
 import (
 	"errors"

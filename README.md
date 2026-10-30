@@ -32,11 +32,10 @@ internal/
   model/                  storage-side structs (db tags)
   schema/                 request/response DTOs
 infra/
-  logger/                 per-module zap loggers + daily rotation + gorm adapter
-  requestid/              request id context carrier
-  response/               unified envelope + AppError + business codes
-  token/                  JWT issue/parse (HS256 + custom claims)
-  pagination/             page/size + id cursor normalization
+  logger/                 per-module zap loggers + daily rotation + gorm adapter + request_id context
+  response.go             unified envelope + AppError + business codes
+  token.go                JWT issue/parse (HS256 + custom claims)
+  pagination.go           page/size + id cursor normalization
 docs/ARCHITECTURE.md      design rationale
 docs/MODULES.zh-CN.md     module-by-module review guide (Chinese)
 migrations/               SQL schema migrations

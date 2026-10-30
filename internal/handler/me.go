@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"gin-scaffold/infra/response"
+	"gin-scaffold/infra"
 	"gin-scaffold/internal/middleware"
 	"gin-scaffold/internal/schema"
 
@@ -12,11 +12,11 @@ import (
 func (h *AuthHandler) Me(c *gin.Context) {
 	claims := middleware.CurrentClaims(c)
 	if claims == nil {
-		response.Fail(c, response.Unauthorized("authorization token is invalid"))
+		infra.Fail(c, infra.Unauthorized("authorization token is invalid"))
 		return
 	}
 
-	response.OK(c, schema.UserDTO{
+	infra.OK(c, schema.UserDTO{
 		ID:       claims.UserID,
 		Username: claims.Username,
 	})

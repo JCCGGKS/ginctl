@@ -13,8 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"gin-scaffold/infra/requestid"
-
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -315,7 +313,7 @@ func (m *manager) close() {
 }
 
 func withRequestID(ctx context.Context, fields []zap.Field) []zap.Field {
-	id := requestid.FromContext(ctx)
+	id := RequestIDFromContext(ctx)
 	if id == "" {
 		return fields
 	}

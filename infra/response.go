@@ -1,12 +1,13 @@
-// Package response defines the unified HTTP response envelope and the typed
-// application error model used across every layer.
+// Package infra holds cross-cutting building blocks shared by the HTTP and
+// application layers: the unified response envelope, JWT handling, and
+// pagination helpers. Request-id context helpers live in infra/logger.
 //
 // Contract:
 //   - every JSON endpoint returns the same shape: {code,msg,data,...}
 //   - business code 0 == success, non-zero == failure
 //   - handlers never hand-craft error payloads; they return an error and let
 //     Fail map it to an HTTP status + body
-package response
+package infra
 
 import (
 	"errors"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	"gin-scaffold/infra/logger"
-	"gin-scaffold/infra/requestid"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -139,7 +139,7 @@ func RequestID(c *gin.Context) string {
 	if c.Request == nil {
 		return ""
 	}
-	return requestid.FromContext(c.Request.Context())
+	return logger.RequestIDFromContext(c.Request.Context())
 }
 
 func getString(c *gin.Context, key string) string {

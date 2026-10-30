@@ -30,11 +30,10 @@
 │   ├── model/                 存储侧模型
 │   └── schema/                HTTP 请求/响应 DTO
 ├── infra/
-│   ├── logger/                分模块 zap 日志、按天/固定文件、GORM 适配
-│   ├── requestid/             request_id 的 context 载体
-│   ├── response/              统一响应包、AppError、业务码
-│   ├── token/                 JWT 签发和校验
-│   └── pagination/            分页归一化
+│   ├── logger/                分模块 zap 日志、按天/固定文件、GORM 适配、request_id context
+│   ├── response.go            统一响应包、AppError、业务码
+│   ├── token.go               JWT 签发和校验
+│   └── pagination.go          分页归一化
 ├── migrations/                MySQL 建表脚本
 └── docs/                      架构分析和本模块梳理
 ```
@@ -52,10 +51,10 @@
 | 领域/存储模型 | `internal/model/user.go` | 存储侧用户行结构 |
 | API DTO | `internal/schema/auth.go` | HTTP 请求和响应结构 |
 | 日志 | `infra/logger/*.go` | 模块 logger、按日文件、request_id 注入、GORM 适配 |
-| 请求 ID | `infra/requestid/requestid.go` | 在 `context.Context` 中保存和读取请求 ID |
-| 统一响应 | `infra/response/response.go` | 响应 envelope、AppError、业务码、错误日志 |
-| JWT | `infra/token/token.go` | HS256 token 签发、解析、Bearer 提取 |
-| 分页 | `infra/pagination/pagination.go` | page/size 和 id cursor 边界归一化 |
+| 请求 ID | `infra/logger/requestid.go` | 在 `context.Context` 中保存和读取请求 ID |
+| 统一响应 | `infra/response.go` | 响应 envelope、AppError、业务码、错误日志 |
+| JWT | `infra/token.go` | HS256 token 签发、解析、Bearer 提取 |
+| 分页 | `infra/pagination.go` | page/size 和 id cursor 边界归一化 |
 
 ## 2. 依赖方向与分层规则
 
@@ -65,9 +64,9 @@ main
  ├── logger
  ├── svc ────────┬── dao/gorm ─── gorm.io/gorm
  │               ├── redis ────── go-redis
- │               └── token
+ │               └── infra
  └── router
-      ├── middleware ──── response / token / logger / requestid
+      ├── middleware ──── infra / logger
       └── handler ─────── business ──── dao / schema / svc
                             └────────── logger
 ```
@@ -408,7 +407,7 @@ type UserDAO interface {
 - `log.compress=true` 时，今天之前的已关闭 `.log` 文件会压缩为 `.gz`；固定文件模式跳过当前活动文件，因此需要配合大小分片才能持续压缩历史文件。
 - `log.level` 是三个模块共同的最低级别。
 - `log.format=json` 使用 JSON 编码；`console` 使用无颜色 console 编码写入文件。
-- 请求级日志方法接收 `context.Context`，通过 `infra/requestid` 自动补充 `request_id`。
+- 请求级日志方法接收 `context.Context`，通过 `infra/logger` 的 context 辅助函数自动补充 `request_id`。
 - 初始化前或初始化失败时使用 stderr fallback logger，保证入口错误仍可见。
 - Gin 默认输出汇入 `access` 模块；`http.Server.ErrorLog` 仍属于应用内部错误，汇入 `app` 模块。
 - `NewGormLogger` 把业务侧 GORM 日志适配到 `gorm` 模块：普通 SQL 为 info，慢查询为 warn，失败为 error。
@@ -431,16 +430,16 @@ type UserDAO interface {
 
 ### 12.2 请求 ID
 
-文件：`infra/requestid/requestid.go`
+文件：`infra/logger/requestid.go`
 
 - 使用私有 context key 保存请求 ID。
 - 不依赖 Gin 或 `internal/*`。
 - `RequestID` 中间件同时维护 Gin context、request context 和 `X-Request-Id` 响应头，三者可互相兼容。
-- `response` 和 `logger` 都可以从 request context 读取同一个 ID。
+- `response` 的 RequestID 辅助函数和 `logger` 都从同一个 request context 读取 ID。
 
 ### 12.3 统一响应与错误
 
-文件：`infra/response/response.go`
+文件：`infra/response.go`
 
 成功响应：
 
@@ -475,7 +474,7 @@ type UserDAO interface {
 
 ### 12.4 JWT
 
-文件：`infra/token/token.go`
+文件：`infra/token.go`
 
 - 使用 HS256。
 - `AuthClaims` 包含 `uid`、`username` 和标准 RegisteredClaims。
@@ -487,7 +486,7 @@ type UserDAO interface {
 
 ### 12.5 分页
 
-文件：`infra/pagination/pagination.go`
+文件：`infra/pagination.go`
 
 - 页码分页：默认第 1 页、每页 10 条、最大 100 条，提供 `Offset()` 和 `Limit()`。
 - Cursor 分页：按递增 id 的方向提供 `LastID`、归一化后的 limit 和 `HasCursor()`。
