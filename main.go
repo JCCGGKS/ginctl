@@ -32,7 +32,7 @@ func main() {
 	}
 }
 
-func run() error {
+func run() (runErr error) {
 	var (
 		env      = flag.String("env", envOrDefault("ENV", config.DefaultEnv), "runtime environment: dev|test|prod (also via ENV)")
 		confDir  = flag.String("c", "etc", "directory holding config_<env>.yaml files")
@@ -69,10 +69,18 @@ func run() error {
 		return fmt.Errorf("validate config: %w", err)
 	}
 
-	svcCtx, err := svc.NewServiceContext(&cfg, *env)
+	svcCtx, err := svc.NewServiceContext(&cfg)
 	if err != nil {
 		return fmt.Errorf("build service context: %w", err)
 	}
+	defer func() {
+		if closeErr := svcCtx.Close(); closeErr != nil {
+			logger.App().Error(context.Background(), "close database failed", zap.Error(closeErr))
+			if runErr == nil {
+				runErr = fmt.Errorf("close database: %w", closeErr)
+			}
+		}
+	}()
 	engine := router.New(svcCtx)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

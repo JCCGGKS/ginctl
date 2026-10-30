@@ -2,8 +2,8 @@
 
 A small, reusable Gin engineering skeleton with clean layering, graceful
 startup/shutdown, structured logging (zap), and JWT auth middleware. Clone it
-as the starting point for new Gin services and swap the in-memory DAO for your
-own storage.
+as the starting point for new Gin services and extend the MySQL/GORM data
+layer for your own storage.
 
 ## What it includes
 
@@ -12,9 +12,9 @@ own storage.
 - JWT: login endpoint, Bearer auth middleware, and a protected `/api/v1/me`.
 - Unified response envelope + typed `AppError` with business error codes.
 - Login rate limiting, request-body limits, and proxy-aware client IP handling.
-- Interface-based data access: `internal/dao` contract + in-memory demo store.
+- Interface-based data access: `internal/dao` contract + MySQL/GORM implementation.
 - Per-environment config files: `etc/config_<env>.yaml`.
-- MySQL & Redis config stubs: pool settings + `DSN()` / `Addr()` helpers.
+- MySQL connection pool, startup ping, and graceful close; Redis config stub.
 
 ## Layout
 
@@ -28,7 +28,7 @@ internal/
   middleware/             requestid, bodylimit, accesslog, recovery, ratelimit, auth (JWT)
   handler/                health, auth login, me (thin HTTP adapters)
   business/                  auth login (business orchestration)
-  dao/                    UserDAO interface + memory/ implementation
+  dao/                    UserDAO interface + gorm/ implementation
   model/                  storage-side structs (db tags)
   schema/                 request/response DTOs
 infra/
@@ -39,6 +39,7 @@ infra/
   pagination/             page/size + id cursor normalization
 docs/ARCHITECTURE.md      design rationale
 docs/MODULES.zh-CN.md     module-by-module review guide (Chinese)
+migrations/               SQL schema migrations
 ```
 
 ## Layer rule of thumb
@@ -53,6 +54,15 @@ docs/MODULES.zh-CN.md     module-by-module review guide (Chinese)
 | infra/* | "what generic thing is reused?" | import internal/* |
 
 ## Run
+
+MySQL is now a startup dependency. Create the schema before starting the
+server:
+
+```bash
+mysql -u app -p gin_scaffold < migrations/001_create_users.sql
+```
+
+Then start the service:
 
 ```bash
 go run .                  # defaults to dev -> etc/config_dev.yaml
@@ -75,51 +85,101 @@ Resolution precedence is `-f` (explicit file) > `-env` flag > `ENV` > `dev`.
 
 Each `etc/config_<env>.yaml` ships `mysql` and `redis` sections. Values follow
 the same precedence and can be overridden by env vars, e.g. `MYSQL_HOST`,
-`MYSQL_PASSWORD`, `REDIS_HOST`, `REDIS_PASSWORD`. `config.MySQLConf.DSN()`
-returns a go-sql-driver DSN and `config.RedisConf.Addr()` returns `host:port`
-for wiring real clients in `internal/svc`.
+`MYSQL_PASSWORD`, `REDIS_HOST`, `REDIS_PASSWORD`. `internal/svc` opens MySQL
+with `gorm.io/driver/mysql`, applies the configured pool limits, pings the
+server before serving traffic, and closes the pool during shutdown. A failed
+connection is a startup error rather than a deferred request failure.
+
+`config.MySQLConf.DSN()` uses `parseTime=true`, local timezone interpretation,
+a 5s dial timeout, and 30s read/write timeouts. `config.RedisConf.Addr()`
+remains a helper for wiring Redis later.
 
 ## Logging
 
-`log.rootDir` is the only log path setting. The service creates one zap logger
-per module and writes one file per module per day in the configured timezone:
+`log.rootDir` is the only log path setting. `log.dailyRotate` defaults to
+`true`; the service then creates one zap logger per module and writes one file
+per module per day in the configured timezone:
 
 ```
 logs/2026-10/2026-10-29_app.log
-logs/2026-10/2026-10-29_business.log
 logs/2026-10/2026-10-29_gorm.log
 logs/2026-10/2026-10-29_access.log
 ```
 
-- `app`: startup, shutdown, server errors, panic recovery, and unhandled 5xx.
-- `business`: login success/rejection and other business events.
+- `app`: internal application logs, including startup/shutdown, server errors, panic recovery, unhandled 5xx, and business events such as login success/rejection.
 - `gorm`: SQL, rows affected, elapsed time, slow queries, and query failures.
-- `access`: one structured line per HTTP request.
+- `access`: one structured line per HTTP request plus Gin framework debug/warning/error output.
+
+With `log.dailyRotate: false`, date switching is disabled and the modules use
+fixed files instead:
+
+```
+logs/app.log
+logs/gorm.log
+logs/access.log
+```
 
 `log.level` filters all modules. `log.format` selects `json` or `console` for
 the file encoder. `log.timezone` controls the day boundary. `log.maxSizeMB`
-splits an oversized day into numbered files such as `2026-10-29_app.1.log`.
-`log.maxAgeDays` removes files older than the configured number of days, and
-`log.compress` gzips completed files from earlier days. Set `maxSizeMB` or
-`maxAgeDays` to `0` to disable that policy.
+splits an oversized file into numbered files such as `2026-10-29_app.1.log`
+(daily mode) or `app.1.log` (fixed mode). `log.maxAgeDays` removes files older
+than the configured number of days, and `log.compress` gzips completed files
+from earlier days. Daily mode uses the date in the file name for these checks;
+fixed mode uses the file modification time and never compresses or removes the
+active file. Consequently, fixed mode requires `maxSizeMB > 0` when retention
+or compression is enabled. Set `maxSizeMB` or `maxAgeDays` to `0` to disable
+that policy.
 
 The request-id middleware stores the id in the request `context.Context`, and
 every module logger automatically adds `request_id`, so one request can be
-followed across business, SQL, and access logs.
+followed across application, SQL, and access logs.
 
-Wire the GORM module logger when a database is added:
+The MySQL connection is created in `internal/svc/database.go`. It wires the
+dedicated GORM module logger like this:
 
 ```go
 db, err := gorm.Open(mysql.Open(cfg.MySQL.DSN()), &gorm.Config{
-    Logger: logger.NewGormLogger(200 * time.Millisecond),
+    Logger: logger.NewGormLoggerWithOptions(logger.GormLoggerOptions{
+        SlowThreshold: 200 * time.Millisecond,
+    }),
 })
 ```
 
 Pass the request context with `db.WithContext(ctx)` so SQL logs carry the same
-`request_id`. For SQL containing sensitive parameters, also enable GORM's
-`ParameterizedQueries: true` option.
+`request_id`. `NewGormLogger` uses GORM's parameter filter by default, so
+`gorm.log` keeps SQL placeholders and omits parameter values. Use
+`NewGormLoggerWithOptions(logger.GormLoggerOptions{LogSQLParameters: true})`
+only when the SQL parameters are safe to retain; `LogRecordNotFound` can be
+enabled separately for record-not-found diagnostics.
 
 ## Auth demo
+
+The GORM DAO does not seed users. Generate a bcrypt hash for a development
+password and insert it explicitly, for example:
+
+```bash
+cat >/tmp/hashpw.go <<'EOF'
+package main
+
+import (
+    "fmt"
+    "golang.org/x/crypto/bcrypt"
+)
+
+func main() {
+    hash, _ := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
+    fmt.Println(string(hash))
+}
+EOF
+go run /tmp/hashpw.go
+```
+
+```sql
+INSERT INTO users (username, password_hash)
+VALUES ('admin', '<bcrypt-hash-from-the-command-above>');
+```
+
+Then call the API:
 
 ```bash
 curl -s http://127.0.0.1:8080/api/v1/login \
@@ -130,13 +190,10 @@ curl -s http://127.0.0.1:8080/api/v1/me \
   -H "Authorization: Bearer <access_token>"
 ```
 
-The demo user is seeded by the in-memory DAO with a bcrypt hash
-(`admin` / `admin123`). Replace `internal/dao/memory` with a real `UserDAO`
-(MySQL/gorm) and it plugs into `internal/svc` without touching business. The
-`jwtSecret` is empty in prod and must be supplied via `AUTH_JWTSECRET`; the
-server refuses to start without it. Prod does not seed the demo user and uses
-an empty in-memory store until a real DAO is wired, so login returns 401 there
-by design.
+The `users` table is defined in `migrations/001_create_users.sql`; the service
+does not run `AutoMigrate`. The `jwtSecret` is empty in prod and must be
+supplied via `AUTH_JWTSECRET`; the server refuses to start without it. In prod,
+`mysql.password` is also required and should be injected via `MYSQL_PASSWORD`.
 
 ## Security defaults
 

@@ -101,9 +101,11 @@ type RedisConf struct {
 }
 
 // DSN returns a go-sql-driver/mysql DSN. ParseTime and Loc are fixed to scan
-// DATETIME/TIMESTAMP into time.Time in the local timezone.
+// DATETIME/TIMESTAMP into time.Time in the local timezone. Dial is bounded to
+// 5s and socket reads/writes to 30s so an unreachable server cannot block
+// startup or requests indefinitely.
 func (m MySQLConf) DSN() string {
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=true&loc=Local",
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=true&loc=Local&timeout=5s&readTimeout=30s&writeTimeout=30s",
 		m.User, m.Password, m.Host, m.Port, m.Database, m.Charset)
 }
 
@@ -156,6 +158,36 @@ func (c Config) Validate(env string) error {
 	}
 	if c.Auth.LoginRateLimitPerMinute < 0 {
 		return fmt.Errorf("auth.loginRateLimitPerMinute must not be negative, got %d", c.Auth.LoginRateLimitPerMinute)
+	}
+	if strings.TrimSpace(c.MySQL.Host) == "" {
+		return errors.New("mysql.host is required")
+	}
+	if c.MySQL.Port < 1 || c.MySQL.Port > 65535 {
+		return fmt.Errorf("mysql.port must be between 1 and 65535, got %d", c.MySQL.Port)
+	}
+	if strings.TrimSpace(c.MySQL.User) == "" {
+		return errors.New("mysql.user is required")
+	}
+	if strings.EqualFold(env, "prod") && c.MySQL.Password == "" {
+		return errors.New("mysql.password is required in prod (set MYSQL_PASSWORD)")
+	}
+	if strings.TrimSpace(c.MySQL.Database) == "" {
+		return errors.New("mysql.database is required")
+	}
+	if strings.TrimSpace(c.MySQL.Charset) == "" {
+		return errors.New("mysql.charset is required")
+	}
+	if c.MySQL.MaxOpenConns <= 0 {
+		return fmt.Errorf("mysql.maxOpenConns must be positive, got %d", c.MySQL.MaxOpenConns)
+	}
+	if c.MySQL.MaxIdleConns < 0 || c.MySQL.MaxIdleConns > c.MySQL.MaxOpenConns {
+		return fmt.Errorf("mysql.maxIdleConns must be between 0 and maxOpenConns, got %d", c.MySQL.MaxIdleConns)
+	}
+	if c.MySQL.ConnMaxLifetimeSeconds < 0 {
+		return fmt.Errorf("mysql.connMaxLifetimeSeconds must not be negative, got %d", c.MySQL.ConnMaxLifetimeSeconds)
+	}
+	if c.MySQL.ConnMaxIdleTimeSeconds < 0 {
+		return fmt.Errorf("mysql.connMaxIdleTimeSeconds must not be negative, got %d", c.MySQL.ConnMaxIdleTimeSeconds)
 	}
 	switch strings.ToLower(c.Log.Level) {
 	case "debug", "info", "warn", "error":

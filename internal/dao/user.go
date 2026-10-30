@@ -12,8 +12,8 @@ import (
 // ErrUserNotFound is the sentinel returned when a lookup has no match.
 var ErrUserNotFound = errors.New("user not found")
 
-// UserDAO abstracts user persistence. Swap the in-memory implementation for
-// MySQL/gorm without touching business or handlers.
+// UserDAO abstracts user persistence so business and handlers do not depend on
+// a concrete database client.
 type UserDAO interface {
 	FindByUsername(ctx context.Context, username string) (*model.User, error)
 }

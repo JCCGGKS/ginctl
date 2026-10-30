@@ -3,16 +3,18 @@
 package svc
 
 import (
-	"context"
+	"database/sql"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
-	"gin-scaffold/infra/logger"
 	"gin-scaffold/infra/token"
 	"gin-scaffold/internal/config"
 	"gin-scaffold/internal/dao"
-	"gin-scaffold/internal/dao/memory"
+	gormdao "gin-scaffold/internal/dao/gorm"
+
+	"gorm.io/gorm"
 )
 
 // ServiceContext is the dependency-injection container. Construct heavy deps
@@ -21,11 +23,16 @@ type ServiceContext struct {
 	Config       *config.Config
 	TokenManager *token.Manager
 	UserDAO      dao.UserDAO
+	DB           *gorm.DB
+
+	sqlDB     *sql.DB
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // NewServiceContext assembles all dependencies from config. It returns an error
 // instead of starting a process with missing critical configuration.
-func NewServiceContext(c *config.Config, env string) (*ServiceContext, error) {
+func NewServiceContext(c *config.Config) (*ServiceContext, error) {
 	if c == nil {
 		return nil, errors.New("config is nil")
 	}
@@ -34,22 +41,30 @@ func NewServiceContext(c *config.Config, env string) (*ServiceContext, error) {
 		return nil, errors.New("auth.jwtSecret is required")
 	}
 
-	env = strings.ToLower(strings.TrimSpace(env))
-	if env == "" {
-		env = config.DefaultEnv
-	}
-
-	var userDAO dao.UserDAO
-	if env == "prod" {
-		logger.App().Warn(context.Background(), "using in-memory user DAO in production; no demo user is seeded; wire a real DAO before deployment")
-		userDAO = memory.NewUserDAO()
-	} else {
-		userDAO = memory.NewDemoUserDAO()
+	db, sqlDB, err := openDatabase(c.MySQL)
+	if err != nil {
+		return nil, err
 	}
 
 	return &ServiceContext{
 		Config:       c,
 		TokenManager: token.NewManager(secret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
-		UserDAO:      userDAO,
+		UserDAO:      gormdao.NewUserDAO(db),
+		DB:           db,
+		sqlDB:        sqlDB,
 	}, nil
+}
+
+// Close releases the database connection pool. It is safe to call more than
+// once and is intended for process shutdown and failed-startup cleanup.
+func (s *ServiceContext) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.closeOnce.Do(func() {
+		if s.sqlDB != nil {
+			s.closeErr = s.sqlDB.Close()
+		}
+	})
+	return s.closeErr
 }

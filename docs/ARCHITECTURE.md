@@ -44,7 +44,7 @@ logx remain the go-zero-bound pieces.
 Layering & boundaries · unified response + typed error · business constructor
 pattern · ServiceContext DI · JWT auth + claims-in-context · per-module zap
 logging with request-id correlation and daily rotation · interface-based
-UserDAO (in-memory) + bcrypt login · pagination
+UserDAO (MySQL/GORM) + bcrypt login · migration-based schema · pagination
 normalization · viper config (per-env file + defaults + env overrides) ·
 graceful shutdown.
 
@@ -56,13 +56,14 @@ Redis aggregation + async flush · concrete SQL/schema.
 
 ## 5. Design principles of the skeleton
 
-Few dependencies (gin + jwt + viper + zap) · thin handler / thick business /
+Small dependency set (gin + jwt + viper + zap + gorm/mysql) · thin handler / thick business /
 cross-cutting middleware · interface-based DAO · one response contract · deps
-centralized in svc · observability (request id + app/business/gorm/access
+centralized in svc · observability (request id + app/gorm/access
 logs + panic guard + 5xx error logs) · externalized config with defaults + env
 overrides and startup validation · login rate limiting + request-body limits +
 explicit proxy trust · business errors decoupled from HTTP status · graceful
-shutdown · runs with zero external infrastructure in dev/test.
+shutdown · fail-fast MySQL connectivity with bounded connection pool and
+startup ping.
 
 ## 6. Request flows
 
@@ -93,8 +94,8 @@ Unknown route / wrong method:
 
 ## 7. Roadmap
 
-- **M0 (done):** runnable skeleton: health, bcrypt login via in-memory DAO, JWT middleware, zap, config validation, rate limiting, unified 404/405, body limits.
-- **M1:** real MySQL DAO, user table.
+- **M0 (done):** runnable skeleton: health, bcrypt login, JWT middleware, zap, config validation, rate limiting, unified 404/405, body limits.
+- **M1 (done):** real MySQL DAO, user table migration, startup ping, pool limits, and shutdown close.
 - **M2:** refresh-token issue/rotate/logout.
 - **M3:** tracing/metrics, validation error i18n.
 - **M4:** turn it into a code generator / `gonew` template.
