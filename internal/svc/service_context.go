@@ -3,6 +3,7 @@
 package svc
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"strings"
@@ -10,11 +11,13 @@ import (
 	"time"
 
 	"gin-scaffold/infra"
+	"gin-scaffold/infra/logger"
 	"gin-scaffold/internal/config"
 	"gin-scaffold/internal/dao"
 	gormdao "gin-scaffold/internal/dao/gorm"
 
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -25,7 +28,9 @@ type ServiceContext struct {
 	JWTManager *infra.JWTManager
 	UserDAO    dao.UserDAO
 	DB         *gorm.DB
-	Redis      *redis.Client
+	// Redis is optional and may be nil when the configured instance is
+	// unavailable at startup.
+	Redis *redis.Client
 
 	sqlDB     *sql.DB
 	closeOnce sync.Once
@@ -49,8 +54,12 @@ func NewServiceContext(c *config.Config) (*ServiceContext, error) {
 	}
 	redisClient, err := openRedis(c.Redis)
 	if err != nil {
-		_ = sqlDB.Close()
-		return nil, err
+		logger.App().Warn(context.Background(), "redis unavailable; continuing without redis",
+			zap.String("addr", c.Redis.Addr()),
+			zap.Int("db", c.Redis.DB),
+			zap.Error(err),
+		)
+		redisClient = nil
 	}
 
 	return &ServiceContext{

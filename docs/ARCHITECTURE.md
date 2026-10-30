@@ -46,7 +46,7 @@ pattern · ServiceContext DI · JWT auth + claims-in-context · per-module zap
 logging with request-id correlation and daily rotation · interface-based
 UserDAO (MySQL/GORM) + bcrypt login · migration-based schema · pagination
 normalization · viper config (per-env file + defaults + env overrides) ·
-graceful shutdown · Redis client infrastructure (no route consumer yet).
+graceful shutdown · optional Redis client infrastructure (no route consumer yet).
 
 ## 4. Deliberately left in the business project
 
@@ -62,8 +62,8 @@ centralized in svc · observability (request id + app/gorm/access
 logs + panic guard + 5xx error logs) · externalized config with defaults + env
 overrides and startup validation · Redis client infrastructure + fixed proxy
 trust policy · business errors decoupled from HTTP status · graceful
-shutdown · fail-fast MySQL and Redis connectivity with bounded connection pools
-and startup pings.
+shutdown · fail-fast MySQL connectivity and best-effort Redis startup with
+bounded connection pools and startup pings.
 
 ## 6. Request flows
 
@@ -96,7 +96,7 @@ Unknown route / wrong method:
 
 - **M0 (done):** runnable skeleton: health, bcrypt login, JWT middleware, zap, config validation, unified 404/405.
 - **M1 (done):** real MySQL DAO, user table migration, startup ping, pool limits, and shutdown close.
-- **M2 (done):** Redis client lifecycle; login rate limiting removed for now.
+- **M2 (done):** optional Redis client lifecycle; login rate limiting removed for now.
 - **M3:** refresh JWT issue/rotate/logout.
 - **M4:** tracing/metrics, validation error i18n.
 - **M5:** turn it into a code generator / `gonew` template.

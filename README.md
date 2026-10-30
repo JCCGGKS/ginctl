@@ -14,7 +14,7 @@ layers for your own storage.
 - `X-Forwarded-For` is never trusted; `ClientIP` uses the direct socket address.
 - Interface-based data access: `internal/dao` contract + MySQL/GORM implementation.
 - Per-environment config files: `etc/config_<env>.yaml`.
-- MySQL and Redis clients with connection pools, startup ping, and graceful close.
+- MySQL client plus optional Redis client with connection pools, startup ping, and graceful close.
 
 ## Layout
 
@@ -54,7 +54,8 @@ migrations/               SQL schema migrations
 
 ## Run
 
-MySQL and Redis are startup dependencies. Create the schema before starting the
+MySQL is a startup dependency. Redis is optional: the service still starts and
+logs a warning when Redis is unavailable. Create the schema before starting the
 server:
 
 ```bash
@@ -90,7 +91,8 @@ server before serving traffic, and closes the pool during shutdown. A failed
 connection is a startup error rather than a deferred request failure.
 
 Redis is opened with `go-redis`, configured with the pool and timeout values in
-YAML, and pinged before startup. No route currently uses Redis; it remains
+YAML, and pinged during startup. If the ping fails, startup continues with
+`ServiceContext.Redis == nil`; no route currently uses Redis, and it remains
 available for future shared state such as sessions or counters.
 
 `config.MySQLConf.DSN()` uses `parseTime=true`, local timezone interpretation,
