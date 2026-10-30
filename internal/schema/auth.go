@@ -10,7 +10,7 @@ type LoginRequest struct {
 
 // LoginResponse is the login response payload.
 type LoginResponse struct {
-	AccessJWT       string  `json:"access_token"`
+	AccessToken     string  `json:"access_token"`
 	AccessExpiresAt int64   `json:"access_expires_at"`
 	User            UserDTO `json:"user"`
 }

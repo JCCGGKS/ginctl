@@ -33,7 +33,7 @@ func NewAuthBusiness(ctx context.Context, svcCtx *svc.ServiceContext) *AuthBusin
 	return &AuthBusiness{ctx: ctx, svcCtx: svcCtx}
 }
 
-// Login validates credentials and issues an access JWT.
+// Login validates credentials and issues an access token.
 func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, error) {
 	if err := l.ctx.Err(); err != nil {
 		return nil, err
@@ -61,7 +61,7 @@ func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, e
 		return nil, ErrInvalidCredentials
 	}
 
-	accessJWT, expiresAt, err := l.svcCtx.JWTManager.Issue(user.ID, user.Username)
+	accessToken, expiresAt, err := l.svcCtx.JWTManager.Issue(user.ID, user.Username)
 	if err != nil {
 		logger.App().Error(l.ctx, "login jwt issue failed", zap.Uint64("user_id", user.ID), zap.Error(err))
 		return nil, fmt.Errorf("issue jwt: %w", err)
@@ -73,7 +73,7 @@ func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, e
 	)
 
 	return &schema.LoginResponse{
-		AccessJWT:       accessJWT,
+		AccessToken:     accessToken,
 		AccessExpiresAt: expiresAt.Unix(),
 		User: schema.UserDTO{
 			ID:       user.ID,

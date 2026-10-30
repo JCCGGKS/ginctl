@@ -29,7 +29,7 @@ func NewJWTManager(secret string, accessTTL time.Duration) *JWTManager {
 	return &JWTManager{secret: []byte(secret), accessTTL: accessTTL}
 }
 
-// Issue creates a signed access JWT and returns it with its expiry.
+// Issue creates a signed access token and returns it with its expiry.
 func (m *JWTManager) Issue(userID uint64, username string) (string, time.Time, error) {
 	if len(m.secret) == 0 {
 		return "", time.Time{}, errors.New("jwt secret is not configured")

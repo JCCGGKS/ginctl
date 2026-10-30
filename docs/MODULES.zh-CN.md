@@ -375,7 +375,7 @@ type UserDAO interface {
 | 类型 | 用途 |
 |---|---|
 | `LoginRequest` | 登录输入，用户名和密码均必填 |
-| `LoginResponse` | 登录输出，包含 access JWT、过期时间和用户 DTO |
+| `LoginResponse` | 登录输出，包含 access token、过期时间和用户 DTO |
 | `UserDTO` | 对外用户视图，仅包含 id 和 username |
 
 该模块与 `model` 分离：HTTP 结构不直接复用存储结构，避免数据库字段和 API 字段互相污染。
