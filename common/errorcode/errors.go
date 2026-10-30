@@ -1,4 +1,6 @@
-package business
+// Package errorcode holds shared sentinel errors used to map business
+// failures to public API responses.
+package errorcode
 
 import "errors"
 

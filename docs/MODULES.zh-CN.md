@@ -28,6 +28,7 @@
 │   ├── dao/                   数据访问接口和 GORM 实现
 │   └── schema/                HTTP 请求/响应 DTO
 ├── common/                     公共包：可跨服务复用的通用能力（不承载业务）
+│   ├── errorcode/             共享业务错误哨兵
 │   ├── logger/                分模块 zap 日志、按天/固定文件、GORM 适配、request_id context
 │   ├── middleware/            请求 ID、鉴权、访问日志、恢复等
 │   ├── model/                 存储侧模型
@@ -51,6 +52,7 @@
 | 存储模型 | `common/model/user.go` | 存储侧用户行结构 |
 | API DTO | `internal/schema/auth.go` | HTTP 请求和响应结构 |
 | 公共工具 | `common/*.go` | 统一响应、JWT、分页等可跨服务复用的通用能力 |
+| 错误定义 | `common/errorcode/errors.go` | 业务错误哨兵，供 business 返回、handler 映射 |
 | 日志 | `common/logger/*.go` | 模块 logger、按日文件、request_id 注入、GORM 适配 |
 | 请求 ID | `common/logger/requestid.go` | 在 `context.Context` 中保存和读取请求 ID |
 | 统一响应 | `common/response.go` | 响应 envelope、AppError、业务码、错误日志 |
@@ -261,7 +263,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 2. 绑定失败返回 400。
 3. 构造 `business.NewAuthBusiness(c.Request.Context(), svcCtx)` 并调用 `Login`。
 4. 按错误类型映射：
-   - `business.ErrInvalidCredentials` -> 401，不暴露用户不存在或密码错误。
+   - `errorcode.ErrInvalidCredentials` -> 401，不暴露用户不存在或密码错误。
    - context 取消/超时 -> 408。
    - 其他错误 -> `response.Fail`，未知错误降级为统一 500。
 
@@ -307,7 +309,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 
 ### 错误语义
 
-`ErrInvalidCredentials` 同时表示“用户不存在”和“密码错误”，handler 统一映射为 401，避免客户端枚举账号。
+`errorcode.ErrInvalidCredentials` 同时表示“用户不存在”和“密码错误”，handler 统一映射为 401，避免客户端枚举账号。
 
 ### 业务日志
 

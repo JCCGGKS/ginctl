@@ -30,6 +30,7 @@ internal/
   dao/                    UserDAO interface + gorm/ implementation
   schema/                 request/response DTOs
 common/                   public packages shared across services
+  errorcode/              shared sentinel errors
   logger/                 per-module zap loggers + daily rotation + gorm adapter + request_id context
   middleware/             requestid, accesslog, recovery, auth (JWT)
   model/                  storage-side structs (db tags)

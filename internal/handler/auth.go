@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gin-scaffold/common"
+	"gin-scaffold/common/errorcode"
 	"gin-scaffold/internal/business"
 	"gin-scaffold/internal/schema"
 	"gin-scaffold/internal/svc"
@@ -35,7 +36,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	resp, err := business.NewAuthBusiness(c.Request.Context(), h.svcCtx).Login(&req)
 	if err != nil {
 		switch {
-		case errors.Is(err, business.ErrInvalidCredentials):
+		case errors.Is(err, errorcode.ErrInvalidCredentials):
 			common.Fail(c, common.Unauthorized("username or password is invalid"))
 		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 			common.Fail(c, common.Timeout("request cancelled"))

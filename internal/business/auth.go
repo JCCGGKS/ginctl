@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 
+	"gin-scaffold/common/errorcode"
 	"gin-scaffold/common/logger"
 	"gin-scaffold/internal/dao"
 	"gin-scaffold/internal/schema"
@@ -47,7 +48,7 @@ func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, e
 				zap.String("username", req.Username),
 				zap.String("reason", "invalid_credentials"),
 			)
-			return nil, ErrInvalidCredentials
+			return nil, errorcode.ErrInvalidCredentials
 		}
 		logger.App().Error(l.ctx, "login user lookup failed", zap.String("username", req.Username), zap.Error(err))
 		return nil, fmt.Errorf("query user: %w", err)
@@ -58,7 +59,7 @@ func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, e
 			zap.String("username", req.Username),
 			zap.String("reason", "invalid_credentials"),
 		)
-		return nil, ErrInvalidCredentials
+		return nil, errorcode.ErrInvalidCredentials
 	}
 
 	accessToken, expiresAt, err := l.svcCtx.JWTManager.Issue(user.ID, user.Username)
