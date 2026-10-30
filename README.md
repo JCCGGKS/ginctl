@@ -5,6 +5,20 @@ startup/shutdown, structured logging (zap), and JWT auth middleware. Clone it
 as the starting point for new Gin services and extend the MySQL/GORM and Redis
 layers for your own storage.
 
+## Create a new project
+
+Initialize a fresh project directory from this scaffold:
+
+```bash
+./scripts/init-project.sh ../order-service github.com/acme/order-service order-service order_service
+```
+
+Arguments are `<target-dir> [module-path] [service-name] [db-name]`; missing
+values are derived from the target directory name. The script copies tracked
+files only, rewrites the Go module/import paths, service name, binary name, and
+database names, initializes a Git repository, and runs `go build ./...`.
+Pass `--no-git` to skip repository initialization.
+
 ## What it includes
 
 - Graceful startup/shutdown: signal-based shutdown with a bounded shutdown window.
