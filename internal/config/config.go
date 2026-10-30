@@ -8,7 +8,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 	_ "time/tzdata"
@@ -18,18 +17,8 @@ import (
 	"github.com/spf13/viper"
 )
 
-// DefaultEnv is the environment assumed when the caller supplies none.
+// DefaultEnv is the environment used when the config file omits env.
 const DefaultEnv = "dev"
-
-// FileForEnv builds the conventional per-environment config path, e.g.
-// FileForEnv("etc", "dev") -> "etc/config_dev.yaml". An empty env falls back
-// to DefaultEnv so a flag value can be passed straight through.
-func FileForEnv(dir, env string) string {
-	if env == "" {
-		env = DefaultEnv
-	}
-	return filepath.Join(dir, "config_"+env+".yaml")
-}
 
 // Config is the root configuration tree. mapstructure tags are what
 // viper.Unmarshal reads.
@@ -42,9 +31,9 @@ type Config struct {
 }
 
 type ServerConf struct {
+	Env  string `mapstructure:"env"`
 	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
-	Mode string `mapstructure:"mode"`
 }
 
 type AuthConf struct {
@@ -97,8 +86,8 @@ func (r RedisConf) Addr() string {
 	return fmt.Sprintf("%s:%d", r.Host, r.Port)
 }
 
-// ValidateEnv rejects environment names other than dev, test, and prod.
-func ValidateEnv(env string) error {
+// validateEnv rejects environment names other than dev, test, and prod.
+func validateEnv(env string) error {
 	switch strings.ToLower(env) {
 	case "dev", "test", "prod":
 		return nil
@@ -107,28 +96,31 @@ func ValidateEnv(env string) error {
 	}
 }
 
+// GinMode maps the configured environment to Gin's runtime mode.
+func (c Config) GinMode() string {
+	switch strings.ToLower(strings.TrimSpace(c.Server.Env)) {
+	case "prod":
+		return "release"
+	case "test":
+		return "test"
+	default:
+		return "debug"
+	}
+}
+
 // Validate rejects configuration that would otherwise fail late at runtime.
-// env is the selected environment name, e.g. "dev", "test", or "prod".
-func (c Config) Validate(env string) error {
-	if err := ValidateEnv(env); err != nil {
+func (c Config) Validate() error {
+	if err := validateEnv(c.Server.Env); err != nil {
 		return err
 	}
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		return fmt.Errorf("server.port must be between 1 and 65535, got %d", c.Server.Port)
 	}
-	switch c.Server.Mode {
-	case "debug", "release", "test":
-	default:
-		return fmt.Errorf("server.mode must be debug, release, or test, got %q", c.Server.Mode)
-	}
-	if strings.EqualFold(env, "prod") && c.Server.Mode != "release" {
-		return fmt.Errorf("server.mode must be release in prod, got %q", c.Server.Mode)
-	}
 	secret := strings.TrimSpace(c.Auth.JWTSecret)
 	if secret == "" {
 		return errors.New("auth.jwtSecret is required (set AUTH_JWTSECRET)")
 	}
-	if strings.EqualFold(env, "prod") && len(secret) < 32 {
+	if strings.EqualFold(c.Server.Env, "prod") && len(secret) < 32 {
 		return errors.New("auth.jwtSecret must be at least 32 bytes in prod")
 	}
 	if c.Auth.AccessExpireSeconds <= 0 {
@@ -143,7 +135,7 @@ func (c Config) Validate(env string) error {
 	if strings.TrimSpace(c.MySQL.User) == "" {
 		return errors.New("mysql.user is required")
 	}
-	if strings.EqualFold(env, "prod") && c.MySQL.Password == "" {
+	if strings.EqualFold(c.Server.Env, "prod") && c.MySQL.Password == "" {
 		return errors.New("mysql.password is required in prod (set MYSQL_PASSWORD)")
 	}
 	if strings.TrimSpace(c.MySQL.Database) == "" {
@@ -170,7 +162,7 @@ func (c Config) Validate(env string) error {
 	if c.Redis.Port < 1 || c.Redis.Port > 65535 {
 		return fmt.Errorf("redis.port must be between 1 and 65535, got %d", c.Redis.Port)
 	}
-	if strings.EqualFold(env, "prod") && c.Redis.Password == "" {
+	if strings.EqualFold(c.Server.Env, "prod") && c.Redis.Password == "" {
 		return errors.New("redis.password is required in prod (set REDIS_PASSWORD)")
 	}
 	if c.Redis.DB < 0 {
@@ -257,6 +249,7 @@ func unmarshal(v *viper.Viper) (Config, error) {
 	if err := v.Unmarshal(&c); err != nil {
 		return Config{}, fmt.Errorf("unmarshal config: %w", err)
 	}
+	c.Server.Env = strings.ToLower(strings.TrimSpace(c.Server.Env))
 	return c, nil
 }
 
@@ -264,9 +257,9 @@ func unmarshal(v *viper.Viper) (Config, error) {
 // lets viper's AutomaticEnv bind env overrides for keys absent from the file
 // (Unmarshal only visits keys viper already knows about).
 func setDefaults(v *viper.Viper) {
+	v.SetDefault("server.env", DefaultEnv)
 	v.SetDefault("server.host", "0.0.0.0")
 	v.SetDefault("server.port", 8080)
-	v.SetDefault("server.mode", "debug")
 	v.SetDefault("auth.jwtSecret", "")
 	v.SetDefault("auth.accessExpireSeconds", 900)
 	v.SetDefault("log.level", "info")

@@ -12,7 +12,7 @@ import (
 
 // New builds the gin engine with global middleware and all routes.
 func New(svcCtx *svc.ServiceContext) *gin.Engine {
-	gin.SetMode(svcCtx.Config.Server.Mode)
+	gin.SetMode(svcCtx.Config.GinMode())
 
 	// Gin framework output belongs to the access module, not business logs.
 	gin.DefaultWriter = logger.AccessWriter()

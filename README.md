@@ -7,20 +7,20 @@ layers for your own storage.
 
 ## What it includes
 
-- Graceful startup/shutdown: signal-based shutdown plus `http.Server` timeouts.
+- Graceful startup/shutdown: signal-based shutdown with a bounded shutdown window.
 - Logging: per-module zap loggers, daily rotation, and `request_id` correlation.
 - JWT: login endpoint, Bearer auth middleware, and a protected `/api/v1/me`.
 - Unified response envelope + typed `AppError` with business error codes.
 - `X-Forwarded-For` is never trusted; `ClientIP` uses the direct socket address.
 - Interface-based data access: `internal/dao` contract + MySQL/GORM implementation.
-- Per-environment config files: `etc/config_<env>.yaml`.
+- Config files with an explicit `server.env: dev|test|prod` setting.
 - MySQL client plus optional Redis client with connection pools, startup ping, and graceful close.
 
 ## Layout
 
 ```
 main.go        entrypoint: load config -> init logger -> svc -> router -> serve
-etc/config_<env>.yaml     runtime config for dev|test|prod
+etc/config_<env>.yaml     runtime config; env field selects the environment
 internal/
   config/                 config structs + Load() + defaults (viper: defaults<file<env)
   svc/                    ServiceContext: dependency-injection container
@@ -65,25 +65,28 @@ mysql -u app -p gin_scaffold < migrations/001_create_users.sql
 Then start the service:
 
 ```bash
-go run .                  # defaults to dev -> etc/config_dev.yaml
-go run . -env prod        # requires AUTH_JWTSECRET (>=32 bytes)
-ENV=test go run .         # etc/config_test.yaml
-go run . -f etc/config_dev.yaml
+go run .                           # defaults to etc/config_dev.yaml
+go run . -f etc/config_test.yaml
+go run . -f etc/config_prod.yaml   # requires AUTH_JWTSECRET (>=32 bytes)
 ```
 
-## Environment selection & gin mode
+## Config file & gin mode
 
-| flags / env | file loaded | gin mode | log format |
-|-------------|-------------|----------|------------|
-| (none) | `etc/config_dev.yaml` | `debug` | `console` |
-| `-env test` / `ENV=test` | `etc/config_test.yaml` | `test` | `console` |
-| `-env prod` / `ENV=prod` | `etc/config_prod.yaml` | `release` | `json` |
+The service has one CLI flag: `-f` selects the config file and defaults to
+`etc/config_dev.yaml`. The file's `server.env` field determines its runtime
+environment:
 
-Resolution precedence is `-f` (explicit file) > `-env` flag > `ENV` > `dev`.
+| `server.env` | gin mode | intended use |
+|--------------|----------|--------------|
+| `dev` | `debug` | local development |
+| `test` | `test` | automated or staging tests |
+| `prod` | `release` | production |
+
+`server.env` is validated at startup and also enables stricter production checks.
 
 ## MySQL & Redis config
 
-Each `etc/config_<env>.yaml` ships `mysql` and `redis` sections. Values follow
+Each config file ships `mysql` and `redis` sections. Values follow
 the same precedence and can be overridden by env vars, e.g. `MYSQL_HOST`,
 `MYSQL_PASSWORD`, `REDIS_HOST`, `REDIS_PASSWORD`. `internal/svc` opens MySQL
 with `gorm.io/driver/mysql`, applies the configured pool limits, pings the

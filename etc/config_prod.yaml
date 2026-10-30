@@ -2,9 +2,9 @@
 # Do NOT commit real secrets here; inject them via environment variables
 # (e.g. AUTH_JWTSECRET=...) which override file values.
 server:
+  env: prod
   host: 0.0.0.0
   port: 8080
-  mode: release               # gin mode: debug | release | test
 
 auth:
   jwtSecret: ""               # set via AUTH_JWTSECRET

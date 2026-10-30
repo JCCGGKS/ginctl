@@ -29,7 +29,7 @@ source of study is the `mysurl1` go-zero short-link service; the goal was to
 |---------|------|-----------------|
 | `rest.Server`, `rest.Route`, `WithMiddlewares` | routing + server lifecycle | `gin.Engine` / groups |
 | `config` embeds `rest.RestConf` | server/log/trace config | custom `ServerConf` + `http.Server` |
-| `conf.MustLoad` | YAML + tag defaults | `spf13/viper` (per-env `config_<env>.yaml` + `SetDefault` + env vars) |
+| `conf.MustLoad` | YAML + tag defaults | `spf13/viper` (`-f` selected YAML + `server.env` + `SetDefault` + env vars) |
 | `httpx.Parse` / `httpx.WriteJsonCtx` | bind / write | `c.ShouldBind*` / `c.JSON` |
 | `sqlx.SqlConn` | data access | `database/sql` / `sqlx` / `gorm` |
 | `logx` | logging | `go.uber.org/zap` |
@@ -45,7 +45,7 @@ Layering & boundaries · unified response + typed error · business constructor
 pattern · ServiceContext DI · JWT auth + claims-in-context · per-module zap
 logging with request-id correlation and daily rotation · interface-based
 UserDAO (MySQL/GORM) + bcrypt login · migration-based schema · pagination
-normalization · viper config (per-env file + defaults + env overrides) ·
+normalization · viper config (`-f` file + `server.env` + defaults + env overrides) ·
 graceful shutdown · optional Redis client infrastructure (no route consumer yet).
 
 ## 4. Deliberately left in the business project

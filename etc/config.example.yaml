@@ -1,15 +1,15 @@
 # gin-scaffold 配置示例
-# 用法：复制为 etc/config_local.yaml（已被 .gitignore 忽略）或 etc/config_<env>.yaml 后修改。
+# 用法：复制为 etc/config_dev.yaml（默认加载）或通过 -f 指向任意配置文件。
 # 优先级：代码默认值 < YAML 文件 < 环境变量。
 # 环境变量名没有前缀，配置路径中的点会替换为下划线，例如 server.port -> SERVER_PORT。
-# prod 额外要求：server.mode 必须是 release，auth.jwtSecret 至少 32 字节，mysql.password 和 redis.password 不能为空。
+# prod 额外要求：env 必须为 prod，auth.jwtSecret 至少 32 字节，mysql.password 和 redis.password 不能为空。
 #
-# 固定参数（不提供配置，改代码即可）：HTTP 超时 15s/15s/5s/60s、优雅关闭 10s。
+# 固定参数：HTTP 请求超时使用 net/http 默认值，优雅关闭等待 10s。
 
 server:
+  env: "dev"                         # 运行环境：dev|test|prod；决定 Gin mode（dev=debug、test=test、prod=release）
   host: "0.0.0.0"                    # HTTP 监听地址；0.0.0.0 表示监听所有网卡，127.0.0.1 仅本机访问
   port: 8080                         # HTTP 监听端口，必须是 1-65535；环境变量 SERVER_PORT
-  mode: "debug"                      # Gin 运行模式：debug|release|test；prod 必须为 release
 
 auth:
   jwtSecret: "change-me-before-deploying-32bytes"  # HS256 签名密钥，必填；prod 至少 32 字节，建议通过 AUTH_JWTSECRET 注入
@@ -38,7 +38,7 @@ mysql:
   connMaxIdleTimeSeconds: 60         # 单个连接最长空闲时间，单位秒；超过后按连接池实现回收
 
 redis:
-  host: "127.0.0.1"                  # Redis 主机地址；服务启动时建立客户端并执行 ping，连接失败则进程退出
+  host: "127.0.0.1"                  # Redis 主机地址；服务启动时建立客户端并执行 ping，连接失败只会记录 warning 并继续启动
   port: 6379                         # Redis 端口；环境变量 REDIS_PORT
   password: "change-me"              # Redis 密码；prod 必填，建议通过 REDIS_PASSWORD 注入，不要提交真实密码
   db: 0                              # Redis 逻辑数据库编号，范围由 Redis 服务端配置决定

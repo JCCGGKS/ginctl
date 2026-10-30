@@ -88,24 +88,22 @@ main
 
 ### 启动顺序
 
-1. 解析 `-env`、`-c`、`-f` 参数，并允许 `ENV` 环境变量提供默认环境。
-2. 决定配置文件：显式 `-f` 优先，否则使用 `etc/config_<env>.yaml`。
-3. `config.Load`：默认值 < YAML 文件 < 环境变量。
-4. `cfg.Validate`：拒绝非法环境、端口、JWT、日志等配置。
-5. `logger.Init`：按 `log.rootDir` 初始化 `app/gorm/access` 三个 logger。
-6. `svc.NewServiceContext`：建立 MySQL 连接并执行启动 ping；尝试建立 Redis 连接，失败时记录 warning 并继续；构造 JWT manager 和 GORM UserDAO。
-7. `router.New`：设置 Gin 模式、固定不信任代理、全局中间件和路由。
-8. 构造 `http.Server`，设置读、写、Header、空闲和优雅关闭超时。
-9. 监听 `SIGINT/SIGTERM`，在 goroutine 中启动 `ListenAndServe`。
-10. 收到信号或监听错误后，使用 `Shutdown` 做优雅关闭，并等待监听 goroutine 退出；第二次信号可强制结束进程。
-11. `svc.ServiceContext.Close()` 关闭数据库和可用的 Redis 客户端；最后 `logger.Close()` 刷新并关闭日志文件。
+1. 解析唯一参数 `-f`，默认加载 `etc/config_dev.yaml`。
+2. `config.Load`：默认值 < YAML 文件 < 环境变量。
+3. `cfg.Validate`：校验配置中的 `server.env`、端口、JWT、日志等字段。
+4. `logger.Init`：按 `log.rootDir` 初始化 `app/gorm/access` 三个 logger。
+5. `svc.NewServiceContext`：建立 MySQL 连接并执行启动 ping；尝试建立 Redis 连接，失败时记录 warning 并继续；构造 JWT manager 和 GORM UserDAO。
+6. `router.New`：根据配置中的 `server.env` 映射 Gin 模式，设置固定不信任代理、全局中间件和路由。
+7. 构造 `http.Server`，只设置监听地址、Handler 和错误日志；请求超时使用 `net/http` 默认值。
+8. 监听 `SIGINT/SIGTERM`，在 goroutine 中启动 `ListenAndServe`。
+9. 收到信号或监听错误后，使用 `Shutdown` 做优雅关闭，并等待监听 goroutine 返回；第二次信号可强制结束进程。
+10. `svc.ServiceContext.Close()` 关闭数据库和可用的 Redis 客户端；最后 `logger.Close()` 刷新并关闭日志文件。
 
 ### 审查关注
 
 - `cfg.Validate` 在 `logger.Init` 之前执行；配置非法时不会创建日志文件，错误由入口的 fallback logger 输出到 stderr。
-- `MaxHeaderBytes` 当前固定为 1 MiB，没有对应配置项。
 - 服务没有独立 readiness 检查；`/healthz` 是轻量 liveness 探针，不检查数据库、Redis 等外部依赖。
-- 优雅关闭超时固定为 10 秒（`main.go` 中的 `httpShutdownTimeout`）；`Shutdown` 返回后等待监听 goroutine 退出，若关闭上下文已到期则记录 warning 并继续退出。
+- 优雅关闭使用 `main.go` 中 `httpShutdownTimeout` 常量限制为 10 秒；`Shutdown` 返回后读取监听结果，关闭失败和监听错误会记录 error 并合并返回。
 
 ## 4. 配置模块
 
@@ -114,7 +112,7 @@ main
 ### 配置来源与优先级
 
 ```text
-代码默认值 < etc/config_<env>.yaml < 环境变量
+代码默认值 < -f 指定的 YAML 文件 < 环境变量
 ```
 
 环境变量没有前缀，`.` 替换为 `_`，例如：
@@ -125,13 +123,13 @@ main
 - `MYSQL_PASSWORD`
 - `REDIS_PASSWORD`
 
-环境/文件选择顺序：`-f` > `-env` > `ENV` > `dev`。
+CLI 只保留 `-f`，默认值为 `etc/config_dev.yaml`。环境由配置文件的 `server.env` 字段决定，不能再用 `-env` 或 `-c` 选择。
 
 ### 配置分组
 
 | 分组 | 关键字段 | 用途 |
 |---|---|---|
-| `server` | host、port、mode | HTTP 监听地址和 Gin 模式；HTTP 超时固定在代码中 |
+| `server` | env、host、port | `env` 取 dev/test/prod 并映射 Gin mode；host/port 为 HTTP 监听地址，请求超时使用 `net/http` 默认值 |
 | `auth` | jwtSecret、accessExpireSeconds | JWT 签发和有效期 |
 | `log` | rootDir、level、format、dailyRotate、timezone、maxSizeMB、maxAgeDays、compress | 日志根目录、级别、编码、按天开关、切日时区、大小分片、保留和压缩 |
 | `mysql` | 连接、库名、连接池、超时 | 建立 GORM 连接、启动 ping、连接池和优雅关闭 |
@@ -143,7 +141,7 @@ main
 
 - 环境名只能是 `dev`、`test`、`prod`。
 - 端口范围合法。
-- Gin mode 只能是 `debug`、`release`、`test`，prod 必须是 `release`。
+- Gin mode 由 `server.env` 自动映射，不再单独配置；prod 固定映射为 `release`。
 - JWT secret 必填；prod 长度至少 32 字节。
 - access TTL 为正数。
 - MySQL host/port/user/database/charset 必填且格式合法；prod 必须提供非空密码；连接池必须为正数或合法非负值，`maxIdleConns` 不能超过 `maxOpenConns`。

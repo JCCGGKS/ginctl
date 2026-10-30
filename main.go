@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -24,25 +23,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// Fixed HTTP settings. These are intentionally not exposed as configuration in
-// the minimal skeleton; change them here when needed.
 const (
-	httpReadTimeout       = 15 * time.Second
-	httpReadHeaderTimeout = 5 * time.Second
-	httpWriteTimeout      = 15 * time.Second
-	httpIdleTimeout       = 60 * time.Second
-	httpShutdownTimeout   = 10 * time.Second
-	httpMaxHeaderBytes    = 1 << 20
+	defaultConfigFile   = "etc/config_dev.yaml"
+	httpShutdownTimeout = 10 * time.Second
 )
 
-type options struct {
-	env      string
-	confDir  string
-	confFile string
-}
-
 func main() {
-	opts, err := parseOptions(os.Args[1:])
+	configFile, err := parseOptions(os.Args[1:])
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			logger.Close()
@@ -53,7 +40,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	err = run(opts)
+	err = run(configFile)
 	if err != nil {
 		logger.App().Error(context.Background(), "server exited with error", zap.Error(err))
 	}
@@ -63,38 +50,22 @@ func main() {
 	}
 }
 
-func parseOptions(args []string) (options, error) {
+func parseOptions(args []string) (string, error) {
 	fs := flag.NewFlagSet("ginctl", flag.ContinueOnError)
-	var opts options
-	fs.StringVar(&opts.env, "env", envOrDefault("ENV", config.DefaultEnv), "runtime environment: dev|test|prod (also via ENV)")
-	fs.StringVar(&opts.confDir, "c", "etc", "directory holding config_<env>.yaml files")
-	fs.StringVar(&opts.confFile, "f", "", "explicit config file; when set it overrides -env/-c")
+	configFile := fs.String("f", defaultConfigFile, "config file path")
 	if err := fs.Parse(args); err != nil {
-		return options{}, err
+		return "", err
 	}
-	opts.env = strings.ToLower(strings.TrimSpace(opts.env))
-	if opts.env == "" {
-		opts.env = config.DefaultEnv
-	}
-	return opts, nil
+	return *configFile, nil
 }
 
-func run(opts options) (runErr error) {
-	if err := config.ValidateEnv(opts.env); err != nil {
-		return err
-	}
-
-	configFile := opts.confFile
-	if configFile == "" {
-		configFile = config.FileForEnv(opts.confDir, opts.env)
-	}
-
+func run(configFile string) (runErr error) {
 	cfg, err := config.Load(configFile)
 	if err != nil {
 		return fmt.Errorf("load config %q: %w", configFile, err)
 	}
 
-	if err := cfg.Validate(opts.env); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("validate config: %w", err)
 	}
 
@@ -102,7 +73,7 @@ func run(opts options) (runErr error) {
 		return fmt.Errorf("init logger: %w", err)
 	}
 	bg := context.Background()
-	logger.App().Info(bg, "config loaded", zap.String("env", opts.env), zap.String("file", configFile))
+	logger.App().Info(bg, "config loaded", zap.String("env", cfg.Server.Env), zap.String("file", configFile))
 
 	svcCtx, err := svc.NewServiceContext(&cfg)
 	if err != nil {
@@ -118,35 +89,34 @@ func run(opts options) (runErr error) {
 	}()
 	engine := router.New(svcCtx)
 
+	return serve(engine, &cfg)
+}
+
+func serve(handler http.Handler, cfg *config.Config) error {
+	bg := context.Background()
 	addr := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           engine,
-		ErrorLog:          logger.StdLogger(),
-		ReadTimeout:       httpReadTimeout,
-		ReadHeaderTimeout: httpReadHeaderTimeout,
-		WriteTimeout:      httpWriteTimeout,
-		IdleTimeout:       httpIdleTimeout,
-		MaxHeaderBytes:    httpMaxHeaderBytes,
+		Addr:     addr,
+		Handler:  handler,
+		ErrorLog: logger.StdLogger(),
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	errCh := make(chan error, 1)
-	serveDone := make(chan struct{})
-	go func() {
-		defer close(serveDone)
-		logger.App().Info(bg, "server starting", zap.String("addr", addr), zap.String("mode", cfg.Server.Mode))
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
+	listenErr := make(chan error, 1)
+	go func() { listenErr <- srv.ListenAndServe() }()
+	logger.App().Info(bg, "server starting",
+		zap.String("addr", addr),
+		zap.String("env", cfg.Server.Env),
+		zap.String("gin_mode", cfg.GinMode()),
+	)
 
 	var serveErr error
+	listenReturned := false
 	select {
-	case serveErr = <-errCh:
-		logger.App().Error(bg, "server error", zap.Error(serveErr))
+	case serveErr = <-listenErr:
+		listenReturned = true
 	case <-ctx.Done():
 		stop()
 		logger.App().Info(bg, "server shutting down gracefully")
@@ -154,27 +124,20 @@ func run(opts options) (runErr error) {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.App().Error(bg, "graceful shutdown failed", zap.Error(err))
-		if serveErr == nil {
-			serveErr = err
-		}
+	shutdownErr := srv.Shutdown(shutdownCtx)
+	if !listenReturned {
+		serveErr = <-listenErr
 	}
-
-	select {
-	case <-serveDone:
-	case <-shutdownCtx.Done():
-		logger.App().Warn(bg, "server did not stop before shutdown deadline")
+	if errors.Is(serveErr, http.ErrServerClosed) {
+		serveErr = nil
+	}
+	if shutdownErr != nil {
+		logger.App().Error(bg, "graceful shutdown failed", zap.Error(shutdownErr))
+	}
+	if serveErr != nil {
+		logger.App().Error(bg, "server error", zap.Error(serveErr))
 	}
 	logger.App().Info(bg, "server stopped")
 
-	return serveErr
-}
-
-// envOrDefault returns the value of env var key, or def when it is unset/empty.
-func envOrDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
+	return errors.Join(serveErr, shutdownErr)
 }
