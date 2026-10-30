@@ -15,22 +15,22 @@ type AuthClaims struct {
 	jwt.RegisteredClaims
 }
 
-// Manager signs and parses tokens with a single HS256 secret.
-type Manager struct {
+// JWTManager signs and parses JWTs with a single HS256 secret.
+type JWTManager struct {
 	secret    []byte
 	accessTTL time.Duration
 }
 
-// NewManager builds a token manager. A non-positive TTL falls back to 15m.
-func NewManager(secret string, accessTTL time.Duration) *Manager {
+// NewJWTManager builds a JWT manager. A non-positive TTL falls back to 15m.
+func NewJWTManager(secret string, accessTTL time.Duration) *JWTManager {
 	if accessTTL <= 0 {
 		accessTTL = 15 * time.Minute
 	}
-	return &Manager{secret: []byte(secret), accessTTL: accessTTL}
+	return &JWTManager{secret: []byte(secret), accessTTL: accessTTL}
 }
 
-// Issue creates a signed access token and returns it with its expiry.
-func (m *Manager) Issue(userID uint64, username string) (string, time.Time, error) {
+// Issue creates a signed access JWT and returns it with its expiry.
+func (m *JWTManager) Issue(userID uint64, username string) (string, time.Time, error) {
 	if len(m.secret) == 0 {
 		return "", time.Time{}, errors.New("jwt secret is not configured")
 	}
@@ -53,14 +53,14 @@ func (m *Manager) Issue(userID uint64, username string) (string, time.Time, erro
 	return signed, expiresAt, nil
 }
 
-// ParseInto validates a token string and decodes it into the provided claims.
-func (m *Manager) ParseInto(tokenString string, claims jwt.Claims) error {
+// ParseInto validates a JWT string and decodes it into the provided claims.
+func (m *JWTManager) ParseInto(jwtString string, claims jwt.Claims) error {
 	if len(m.secret) == 0 {
 		return errors.New("jwt secret is not configured")
 	}
 
-	token, err := jwt.ParseWithClaims(
-		tokenString,
+	parsed, err := jwt.ParseWithClaims(
+		jwtString,
 		claims,
 		func(t *jwt.Token) (any, error) {
 			if t.Method != jwt.SigningMethodHS256 {
@@ -73,14 +73,14 @@ func (m *Manager) ParseInto(tokenString string, claims jwt.Claims) error {
 	if err != nil {
 		return err
 	}
-	if !token.Valid {
-		return errors.New("token is invalid")
+	if !parsed.Valid {
+		return errors.New("jwt is invalid")
 	}
 	return nil
 }
 
-// ExtractBearer returns the bearer token part from an Authorization header.
-// It returns "" when the header is not in the expected "Bearer <token>" form.
+// ExtractBearer returns the bearer JWT from an Authorization header.
+// It returns "" when the header is not in the expected "Bearer <jwt>" form.
 func ExtractBearer(header string) string {
 	header = strings.TrimSpace(header)
 	parts := strings.SplitN(header, " ", 2)

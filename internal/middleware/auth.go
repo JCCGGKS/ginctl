@@ -11,20 +11,20 @@ import (
 
 const ctxClaimsKey = "auth_claims"
 
-// Auth verifies the Bearer token and stores the claims on the gin context.
+// Auth verifies the Bearer JWT and stores the claims on the gin context.
 // Protected handlers read identity via CurrentClaims(c).
-func Auth(tm *infra.Manager) gin.HandlerFunc {
+func Auth(tm *infra.JWTManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := infra.ExtractBearer(c.GetHeader("Authorization"))
 		if raw == "" {
-			infra.Fail(c, infra.Unauthorized("authorization token is required"))
+			infra.Fail(c, infra.Unauthorized("authorization JWT is required"))
 			c.Abort()
 			return
 		}
 
 		claims := &infra.AuthClaims{}
 		if err := tm.ParseInto(raw, claims); err != nil {
-			infra.Fail(c, infra.Unauthorized("authorization token is invalid"))
+			infra.Fail(c, infra.Unauthorized("authorization JWT is invalid"))
 			c.Abort()
 			return
 		}

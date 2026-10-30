@@ -33,7 +33,7 @@ func NewAuthBusiness(ctx context.Context, svcCtx *svc.ServiceContext) *AuthBusin
 	return &AuthBusiness{ctx: ctx, svcCtx: svcCtx}
 }
 
-// Login validates credentials and issues an access token.
+// Login validates credentials and issues an access JWT.
 func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, error) {
 	if err := l.ctx.Err(); err != nil {
 		return nil, err
@@ -61,10 +61,10 @@ func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, e
 		return nil, ErrInvalidCredentials
 	}
 
-	accessToken, expiresAt, err := l.svcCtx.TokenManager.Issue(user.ID, user.Username)
+	accessJWT, expiresAt, err := l.svcCtx.JWTManager.Issue(user.ID, user.Username)
 	if err != nil {
-		logger.App().Error(l.ctx, "login token issue failed", zap.Uint64("user_id", user.ID), zap.Error(err))
-		return nil, fmt.Errorf("issue token: %w", err)
+		logger.App().Error(l.ctx, "login jwt issue failed", zap.Uint64("user_id", user.ID), zap.Error(err))
+		return nil, fmt.Errorf("issue jwt: %w", err)
 	}
 
 	logger.App().Info(l.ctx, "login succeeded",
@@ -73,7 +73,7 @@ func (l *AuthBusiness) Login(req *schema.LoginRequest) (*schema.LoginResponse, e
 	)
 
 	return &schema.LoginResponse{
-		AccessToken:     accessToken,
+		AccessJWT:       accessJWT,
 		AccessExpiresAt: expiresAt.Unix(),
 		User: schema.UserDTO{
 			ID:       user.ID,

@@ -17,6 +17,6 @@ func registerRoutes(engine *gin.Engine, svcCtx *svc.ServiceContext) {
 	v1 := engine.Group("/api/v1")
 	v1.POST("/login", authHandler.Login)
 
-	protected := engine.Group("/api/v1", middleware.Auth(svcCtx.TokenManager))
+	protected := engine.Group("/api/v1", middleware.Auth(svcCtx.JWTManager))
 	protected.GET("/me", authHandler.Me)
 }

@@ -21,11 +21,11 @@ import (
 // ServiceContext is the dependency-injection container. Construct heavy deps
 // (DB, Redis, clients, DAOs) once here and share the pointers everywhere.
 type ServiceContext struct {
-	Config       *config.Config
-	TokenManager *infra.Manager
-	UserDAO      dao.UserDAO
-	DB           *gorm.DB
-	Redis        *redis.Client
+	Config     *config.Config
+	JWTManager *infra.JWTManager
+	UserDAO    dao.UserDAO
+	DB         *gorm.DB
+	Redis      *redis.Client
 
 	sqlDB     *sql.DB
 	closeOnce sync.Once
@@ -54,12 +54,12 @@ func NewServiceContext(c *config.Config) (*ServiceContext, error) {
 	}
 
 	return &ServiceContext{
-		Config:       c,
-		TokenManager: infra.NewManager(secret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
-		UserDAO:      gormdao.NewUserDAO(db),
-		DB:           db,
-		Redis:        redisClient,
-		sqlDB:        sqlDB,
+		Config:     c,
+		JWTManager: infra.NewJWTManager(secret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
+		UserDAO:    gormdao.NewUserDAO(db),
+		DB:         db,
+		Redis:      redisClient,
+		sqlDB:      sqlDB,
 	}, nil
 }
 

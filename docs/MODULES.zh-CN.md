@@ -32,7 +32,7 @@
 ├── infra/
 │   ├── logger/                分模块 zap 日志、按天/固定文件、GORM 适配、request_id context
 │   ├── response.go            统一响应包、AppError、业务码
-│   ├── token.go               JWT 签发和校验
+│   ├── jwt.go                 JWT 签发和校验
 │   └── pagination.go          分页归一化
 ├── migrations/                MySQL 建表脚本
 └── docs/                      架构分析和本模块梳理
@@ -42,7 +42,7 @@
 |---|---|---|
 | 进程入口 | `main.go` | 解析环境/配置、初始化日志、装配依赖、启动和关闭 HTTP Server |
 | 配置 | `internal/config/config.go` | 配置结构、默认值、Viper 加载、启动前校验 |
-| 依赖装配 | `internal/svc/service_context.go` | 构造 token manager、DAO 等共享依赖 |
+| 依赖装配 | `internal/svc/service_context.go` | 构造 JWT manager、DAO 等共享依赖 |
 | 路由 | `internal/router/*.go` | Gin 引擎、中间件顺序、公开/受保护路由、404/405 |
 | 中间件 | `internal/middleware/*.go` | 请求 ID、访问日志、panic 恢复、JWT 鉴权 |
 | 处理器 | `internal/handler/*.go` | 绑定 HTTP 输入、调用业务、输出统一响应 |
@@ -53,7 +53,7 @@
 | 日志 | `infra/logger/*.go` | 模块 logger、按日文件、request_id 注入、GORM 适配 |
 | 请求 ID | `infra/logger/requestid.go` | 在 `context.Context` 中保存和读取请求 ID |
 | 统一响应 | `infra/response.go` | 响应 envelope、AppError、业务码、错误日志 |
-| JWT | `infra/token.go` | HS256 token 签发、解析、Bearer 提取 |
+| JWT | `infra/jwt.go` | HS256 JWT 签发、解析、Bearer 提取 |
 | 分页 | `infra/pagination.go` | page/size 和 id cursor 边界归一化 |
 
 ## 2. 依赖方向与分层规则
@@ -80,7 +80,7 @@ main
 | `svc` | 构造和共享依赖 | 业务流程 |
 | `infra` | 可复用的通用基础设施 | 反向依赖 `internal/*` |
 
-当前 `infra/*` 没有导入 `internal/*`，方向保持正确。业务层通过 `svc.ServiceContext` 获取 DAO 和 token manager，这是当前骨架的核心装配方式。
+当前 `infra/*` 没有导入 `internal/*`，方向保持正确。业务层通过 `svc.ServiceContext` 获取 DAO 和 JWT manager，这是当前骨架的核心装配方式。
 
 ## 3. 进程入口与生命周期
 
@@ -93,7 +93,7 @@ main
 3. `config.Load`：默认值 < YAML 文件 < 环境变量。
 4. `logger.Init`：按 `log.rootDir` 初始化 `app/gorm/access` 三个 logger。
 5. `cfg.Validate`：拒绝端口、超时、JWT、日志等非法配置。
-6. `svc.NewServiceContext`：建立 MySQL 和 Redis 连接、执行启动 ping、设置连接池，构造 token manager 和 GORM UserDAO。
+6. `svc.NewServiceContext`：建立 MySQL 和 Redis 连接、执行启动 ping、设置连接池，构造 JWT manager 和 GORM UserDAO。
 7. `router.New`：设置 Gin 模式、固定不信任代理、全局中间件和路由。
 8. 构造 `http.Server`，设置读、写、Header、空闲和优雅关闭超时。
 9. 监听 `SIGINT/SIGTERM`，在 goroutine 中启动 `ListenAndServe`。
@@ -165,7 +165,7 @@ main
 ```go
 type ServiceContext struct {
     Config       *config.Config
-    TokenManager *token.Manager
+    JWTManager   *infra.JWTManager
     UserDAO      dao.UserDAO
     DB           *gorm.DB
     Redis        *redis.Client
@@ -179,7 +179,7 @@ type ServiceContext struct {
 - 调用 `openDatabase` 打开 MySQL：使用 GORM MySQL dialector，注入 `gorm` 模块 logger，设置连接池上限、生命周期和空闲时间，并在启动阶段 ping。
 - 调用 `openRedis` 打开 Redis：设置密码、DB、连接池、拨号和读写超时，并在启动阶段 ping；Redis 失败时会先关闭已建立的 MySQL 连接池。
 - 构造 `gormdao.NewUserDAO(db)`，不再按环境切换 DAO 实现。
-- 用配置构造 `token.Manager`。
+- 用配置构造 `infra.JWTManager`。
 - 提供幂等的 `Close()`，关闭底层 `*sql.DB` 和 Redis 客户端。
 
 ### 审查关注
@@ -212,7 +212,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 |---|---|---|---|
 | `GET` | `/healthz` | 全局中间件 | 极简存活探针，刻意不走统一 envelope |
 | `POST` | `/api/v1/login` | 全局中间件 | 用户名密码登录并签发 JWT |
-| `GET` | `/api/v1/me` | 全局 + JWT 鉴权 | 返回 token 中的当前用户身份 |
+| `GET` | `/api/v1/me` | 全局 + JWT 鉴权 | 返回 JWT claims 中的当前用户身份 |
 
 ### 异常路由
 
@@ -233,7 +233,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 | `RequestID` | `requestid.go` | 读取 `X-Request-Id`，没有则生成 16 字节随机 hex；写入 Gin context、request context 和响应头 | 随机源失败时使用 `unknown` |
 | `AccessLog` | `accesslog.go` | 请求结束后记录 method/path/status/latency/client_ip/user_id | 写 `access` 模块日志 |
 | `Recovery` | `recovery.go` | recover panic，记录 app error 并返回统一 500 | `50000` |
-| `Auth` | `auth.go` | 校验 `Authorization: Bearer <token>`，解析后把 claims 放入 Gin context | `40100` |
+| `Auth` | `auth.go` | 校验 `Authorization: Bearer <JWT>`，解析后把 claims 放入 Gin context | `40100` |
 
 ### 关键行为
 
@@ -244,7 +244,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 
 - `ClientIP` 使用直连地址，部署在反向代理后需要重新评估真实 IP 获取方式。
 - 外部传入的 `X-Request-Id` 当前没有长度和字符白名单校验。若直接暴露公网，建议限制长度，或在不受信任场景强制生成服务端 ID。
-- JWT 是无状态校验，没有 token 撤销、黑名单、刷新和登出语义。
+- JWT 是无状态校验，没有 JWT 撤销、黑名单、刷新和登出语义。
 - `Recovery` 会先记录一次 `panic recovered`，随后 `response.Fail` 还会记录一次 5xx 的 `request failed`，同一 panic 可能产生两条 app error 日志。
 
 ## 8. HTTP 处理器模块
@@ -284,7 +284,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 
 - 登录输入目前只有 `required`，没有用户名/密码长度、格式和最大长度约束。
 - handler 没有直接写业务错误文案，错误映射集中在 `response` 和少量 switch 中，边界清晰。
-- `/api/v1/me` 信任 token 中的身份；如果引入用户禁用、角色变更等实时状态，需要重新设计为查询会话或用户状态。
+- `/api/v1/me` 信任 JWT claims 中的身份；如果引入用户禁用、角色变更等实时状态，需要重新设计为查询会话或用户状态。
 
 ## 9. 业务模块
 
@@ -302,8 +302,8 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 2. 通过 `UserDAO.FindByUsername` 查询用户。
 3. 用户不存在时执行一次 dummy bcrypt 比较，使未知用户和密码错误的耗时路径接近。
 4. 用户存在时执行真实 bcrypt 比较。
-5. 通过 `TokenManager.Issue` 签发访问 token。
-6. 返回 `LoginResponse`，其中包含 token、过期时间和最小化用户 DTO。
+5. 通过 `JWTManager.Issue` 签发访问 JWT。
+6. 返回 `LoginResponse`，其中包含 JWT、过期时间和最小化用户 DTO。
 
 ### 错误语义
 
@@ -313,13 +313,13 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 
 - 登录成功：`info`，包含 `user_id`、`username`。
 - 凭证错误：`warn`，包含 `username` 和 `reason=invalid_credentials`。
-- DAO 查询失败、token 签发失败：`error`。
-- 不记录密码、密码哈希和 token。
+- DAO 查询失败、JWT 签发失败：`error`。
+- 不记录密码、密码哈希和 JWT。
 
 ### 审查关注
 
 - dummy bcrypt 只能均衡未知用户与已知用户密码错误的时间差，不能替代完整的安全审计。
-- 当前没有登录失败次数累计、账号锁定、验证码、刷新 token 和登出。
+- 当前没有登录失败次数累计、账号锁定、验证码、刷新 JWT 和登出。
 - 业务层直接依赖 `svc.ServiceContext`；如果未来需要复用业务逻辑到非 HTTP 场景，可考虑缩小为更精确的依赖接口。
 
 ## 10. 数据访问与模型模块
@@ -345,7 +345,7 @@ type UserDAO interface {
 - `UserDAO` 持有 `*gorm.DB`，由 `NewUserDAO` 构造。
 - `FindByUsername` 使用 `db.WithContext(ctx)` 执行参数化查询，保证查询能被请求取消，并让 GORM 日志拿到同一个 `request_id`。
 - `gorm.ErrRecordNotFound` 转换为 `dao.ErrUserNotFound`，其他数据库错误带上下文返回。
-- 不记录明文密码、密码哈希或 token。
+- 不记录明文密码、密码哈希或 JWT。
 
 ### 表结构
 
@@ -375,7 +375,7 @@ type UserDAO interface {
 | 类型 | 用途 |
 |---|---|
 | `LoginRequest` | 登录输入，用户名和密码均必填 |
-| `LoginResponse` | 登录输出，包含 access token、过期时间和用户 DTO |
+| `LoginResponse` | 登录输出，包含 access JWT、过期时间和用户 DTO |
 | `UserDTO` | 对外用户视图，仅包含 id 和 username |
 
 该模块与 `model` 分离：HTTP 结构不直接复用存储结构，避免数据库字段和 API 字段互相污染。
@@ -474,15 +474,15 @@ type UserDAO interface {
 
 ### 12.4 JWT
 
-文件：`infra/token.go`
+文件：`infra/jwt.go`
 
 - 使用 HS256。
 - `AuthClaims` 包含 `uid`、`username` 和标准 RegisteredClaims。
-- `Issue` 返回 token 和过期时间；TTL 非正数时回退 15 分钟。
+- `Issue` 返回 JWT 和过期时间；TTL 非正数时回退 15 分钟。
 - `ParseInto` 强制只接受 HS256，并使用 `WithValidMethods` 再限制一次。
-- `ExtractBearer` 只接受 `Bearer <token>` 形式，大小写不敏感。
+- `ExtractBearer` 只接受 `Bearer <JWT>` 形式，大小写不敏感。
 
-当前没有 issuer、audience、not-before、刷新 token、撤销和密钥轮换。
+当前没有 issuer、audience、not-before、刷新 JWT、撤销和密钥轮换。
 
 ### 12.5 分页
 
@@ -506,7 +506,7 @@ POST /api/v1/login
        -> business.AuthBusiness.Login
             -> UserDAO.FindByUsername
             -> bcrypt 校验
-            -> TokenManager.Issue
+            -> JWTManager.Issue
             -> app 日志（业务事件）
        -> response.OK
   -> AccessLog 写 access 日志
@@ -521,7 +521,7 @@ GET /api/v1/me
   RequestID -> AccessLog -> Recovery
   -> middleware.Auth
        -> ExtractBearer
-       -> TokenManager.ParseInto
+       -> JWTManager.ParseInto
        -> 写入 claims
   -> handler.Me
        -> 读取 claims

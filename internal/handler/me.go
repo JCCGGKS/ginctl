@@ -12,7 +12,7 @@ import (
 func (h *AuthHandler) Me(c *gin.Context) {
 	claims := middleware.CurrentClaims(c)
 	if claims == nil {
-		infra.Fail(c, infra.Unauthorized("authorization token is invalid"))
+		infra.Fail(c, infra.Unauthorized("authorization JWT is invalid"))
 		return
 	}
 

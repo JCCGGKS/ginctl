@@ -79,7 +79,7 @@ Login and protected read (`POST /api/v1/login`, `GET /api/v1/me`):
 ```
 POST /api/v1/login:
   RequestID -> AccessLog -> Recovery -> handler.Login.bind
-    -> business.Login (dao lookup + timing-equalized bcrypt compare) -> token.Issue
+    -> business.Login (dao lookup + timing-equalized bcrypt compare) -> JWTManager.Issue
     -> response.OK {access_token, user}
 
 GET /api/v1/me:
@@ -97,6 +97,6 @@ Unknown route / wrong method:
 - **M0 (done):** runnable skeleton: health, bcrypt login, JWT middleware, zap, config validation, unified 404/405.
 - **M1 (done):** real MySQL DAO, user table migration, startup ping, pool limits, and shutdown close.
 - **M2 (done):** Redis client lifecycle; login rate limiting removed for now.
-- **M3:** refresh-token issue/rotate/logout.
+- **M3:** refresh JWT issue/rotate/logout.
 - **M4:** tracing/metrics, validation error i18n.
 - **M5:** turn it into a code generator / `gonew` template.
