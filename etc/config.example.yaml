@@ -3,18 +3,13 @@
 # 优先级：代码默认值 < YAML 文件 < 环境变量。
 # 环境变量名没有前缀，配置路径中的点会替换为下划线，例如 server.port -> SERVER_PORT。
 # prod 额外要求：server.mode 必须是 release，auth.jwtSecret 至少 32 字节，mysql.password 和 redis.password 不能为空。
+#
+# 固定参数（不提供配置，改代码即可）：HTTP 超时 15s/15s/5s/60s、优雅关闭 10s。
 
 server:
   host: "0.0.0.0"                    # HTTP 监听地址；0.0.0.0 表示监听所有网卡，127.0.0.1 仅本机访问
   port: 8080                         # HTTP 监听端口，必须是 1-65535；环境变量 SERVER_PORT
   mode: "debug"                      # Gin 运行模式：debug|release|test；prod 必须为 release
-  maxBodyBytes: 1048576              # 单个请求体最大字节数，默认 1 MiB；超过后登录接口返回 413
-  trustedProxies: []                 # 可信反向代理 CIDR 列表；空列表表示不信任 X-Forwarded-For，ClientIP 使用直连地址
-  readTimeoutSeconds: 15             # 读取整个请求（含请求体）的最长时间，单位秒；超时由 http.Server 处理
-  writeTimeoutSeconds: 15            # 写入响应和读取请求体的总超时，单位秒；长耗时接口需要评估是否调大
-  readHeaderTimeoutSeconds: 5        # 读取请求头的超时，单位秒；用于降低 Slowloris 类慢请求风险
-  idleTimeoutSeconds: 60             # HTTP keep-alive 连接空闲超时，单位秒；超时后连接关闭
-  shutdownTimeoutSeconds: 10         # 收到 SIGINT/SIGTERM 后等待优雅关闭的最长时间，单位秒
 
 auth:
   jwtSecret: "change-me-before-deploying-32bytes"  # HS256 签名密钥，必填；prod 至少 32 字节，建议通过 AUTH_JWTSECRET 注入
@@ -22,7 +17,7 @@ auth:
   loginRateLimitPerMinute: 10        # 每个客户端 IP 每分钟登录尝试上限；当前 0 会回退为 10，不能用来关闭限流
 
 log:
-  rootDir: "logs"                    # 日志根目录；相对路径基于进程工作目录。按天切割时为 <rootDir>/<YYYY-MM>/<YYYY-MM-DD>_<module>.log，关闭时为 <rootDir>/<module>.log
+  rootDir: "logs"                    # 日志根目录；相对路径基于进程工作目录。按天切割时为 <rootDir>/<YYYY-MM>/<YYYY-MM-DD>_<module>.log
   level: "info"                      # 全局最低日志级别：debug|info|warn|error，作用于 app/gorm/access 三个模块
   format: "console"                  # 日志文件编码格式：json|console；生产环境建议 json，便于采集和检索
   dailyRotate: true                  # 是否按天切换日志文件；false 时使用固定文件 <rootDir>/<module>.log，并改为按文件修改时间清理和压缩

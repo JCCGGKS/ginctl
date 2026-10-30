@@ -40,16 +40,9 @@ type Config struct {
 }
 
 type ServerConf struct {
-	Host                     string   `mapstructure:"host"`
-	Port                     int      `mapstructure:"port"`
-	Mode                     string   `mapstructure:"mode"`
-	MaxBodyBytes             int64    `mapstructure:"maxBodyBytes"`
-	TrustedProxies           []string `mapstructure:"trustedProxies"`
-	ReadTimeoutSeconds       int      `mapstructure:"readTimeoutSeconds"`
-	WriteTimeoutSeconds      int      `mapstructure:"writeTimeoutSeconds"`
-	ReadHeaderTimeoutSeconds int      `mapstructure:"readHeaderTimeoutSeconds"`
-	IdleTimeoutSeconds       int      `mapstructure:"idleTimeoutSeconds"`
-	ShutdownTimeoutSeconds   int      `mapstructure:"shutdownTimeoutSeconds"`
+	Host string `mapstructure:"host"`
+	Port int    `mapstructure:"port"`
+	Mode string `mapstructure:"mode"`
 }
 
 type AuthConf struct {
@@ -127,24 +120,6 @@ func (c Config) Validate(env string) error {
 	}
 	if strings.EqualFold(env, "prod") && c.Server.Mode != "release" {
 		return fmt.Errorf("server.mode must be release in prod, got %q", c.Server.Mode)
-	}
-	if c.Server.MaxBodyBytes <= 0 {
-		return fmt.Errorf("server.maxBodyBytes must be positive, got %d", c.Server.MaxBodyBytes)
-	}
-	if c.Server.ReadTimeoutSeconds <= 0 {
-		return fmt.Errorf("server.readTimeoutSeconds must be positive, got %d", c.Server.ReadTimeoutSeconds)
-	}
-	if c.Server.WriteTimeoutSeconds <= 0 {
-		return fmt.Errorf("server.writeTimeoutSeconds must be positive, got %d", c.Server.WriteTimeoutSeconds)
-	}
-	if c.Server.ReadHeaderTimeoutSeconds <= 0 {
-		return fmt.Errorf("server.readHeaderTimeoutSeconds must be positive, got %d", c.Server.ReadHeaderTimeoutSeconds)
-	}
-	if c.Server.IdleTimeoutSeconds <= 0 {
-		return fmt.Errorf("server.idleTimeoutSeconds must be positive, got %d", c.Server.IdleTimeoutSeconds)
-	}
-	if c.Server.ShutdownTimeoutSeconds <= 0 {
-		return fmt.Errorf("server.shutdownTimeoutSeconds must be positive, got %d", c.Server.ShutdownTimeoutSeconds)
 	}
 	secret := strings.TrimSpace(c.Auth.JWTSecret)
 	if secret == "" {
@@ -292,12 +267,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.host", "0.0.0.0")
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("server.mode", "debug")
-	v.SetDefault("server.maxBodyBytes", int64(1<<20))
-	v.SetDefault("server.readTimeoutSeconds", 15)
-	v.SetDefault("server.writeTimeoutSeconds", 15)
-	v.SetDefault("server.readHeaderTimeoutSeconds", 5)
-	v.SetDefault("server.idleTimeoutSeconds", 60)
-	v.SetDefault("server.shutdownTimeoutSeconds", 10)
 	v.SetDefault("auth.jwtSecret", "")
 	v.SetDefault("auth.accessExpireSeconds", 900)
 	v.SetDefault("auth.loginRateLimitPerMinute", 10)

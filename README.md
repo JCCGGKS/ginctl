@@ -25,7 +25,7 @@ internal/
   config/                 config structs + Load() + defaults (viper: defaults<file<env)
   svc/                    ServiceContext: dependency-injection container
   router/                 gin engine + global middleware + explicit routes
-  middleware/             requestid, bodylimit, accesslog, recovery, ratelimit, auth (JWT)
+  middleware/             requestid, accesslog, recovery, ratelimit, auth (JWT)
   handler/                health, auth login, me (thin HTTP adapters)
   business/                  auth login (business orchestration)
   dao/                    UserDAO interface + gorm/ implementation
@@ -207,9 +207,8 @@ via `MYSQL_PASSWORD` and `REDIS_PASSWORD`.
 
 - `auth.loginRateLimitPerMinute` limits login attempts per client IP (default 10)
   with shared Redis counters, so multiple instances enforce one limit.
-- `server.maxBodyBytes` caps request bodies (default 1 MiB).
-- `server.trustedProxies` is empty by default, which disables `X-Forwarded-For`
-  trust. Set explicit CIDRs only for a known load balancer.
+- `X-Forwarded-For` is never trusted; `ClientIP` always uses the direct socket
+  address.
 - 404 and 405 responses use the same JSON envelope and business-code namespace
   as other endpoints.
 

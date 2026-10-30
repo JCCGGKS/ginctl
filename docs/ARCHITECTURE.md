@@ -60,8 +60,8 @@ Small dependency set (gin + jwt + viper + zap + gorm/mysql + redis) · thin hand
 cross-cutting middleware · interface-based DAO · one response contract · deps
 centralized in svc · observability (request id + app/gorm/access
 logs + panic guard + 5xx error logs) · externalized config with defaults + env
-overrides and startup validation · shared Redis login rate limiting + request-body limits +
-explicit proxy trust · business errors decoupled from HTTP status · graceful
+overrides and startup validation · shared Redis login rate limiting + fixed proxy
+trust policy · business errors decoupled from HTTP status · graceful
 shutdown · fail-fast MySQL and Redis connectivity with bounded connection pools
 and startup pings.
 
@@ -70,7 +70,7 @@ and startup pings.
 Public liveness probe (`GET /healthz`):
 
 ```
-RequestID -> BodyLimit -> AccessLog -> Recovery -> handler.Health
+RequestID -> AccessLog -> Recovery -> handler.Health
   -> 200 {status:"ok"}
 ```
 
@@ -78,23 +78,23 @@ Login and protected read (`POST /api/v1/login`, `GET /api/v1/me`):
 
 ```
 POST /api/v1/login:
-  RequestID -> BodyLimit -> AccessLog -> Recovery -> RateLimit(Redis Lua) -> handler.Login.bind
+  RequestID -> AccessLog -> Recovery -> RateLimit(Redis Lua) -> handler.Login.bind
     -> business.Login (dao lookup + timing-equalized bcrypt compare) -> token.Issue
     -> response.OK {access_token, user}
 
 GET /api/v1/me:
-  RequestID -> BodyLimit -> AccessLog -> Recovery -> middleware.Auth (verify Bearer + set claims)
+  RequestID -> AccessLog -> Recovery -> middleware.Auth (verify Bearer + set claims)
     -> handler.Me (CurrentClaims) -> response.OK {id, username}
 <- AccessLog logs status + request_id (+ user_id when authenticated)
 
 Unknown route / wrong method:
-  RequestID -> BodyLimit -> AccessLog -> Recovery -> NoRoute/NoMethod
+  RequestID -> AccessLog -> Recovery -> NoRoute/NoMethod
     -> response.Fail (40400 / 40500)
 ```
 
 ## 7. Roadmap
 
-- **M0 (done):** runnable skeleton: health, bcrypt login, JWT middleware, zap, config validation, rate limiting, unified 404/405, body limits.
+- **M0 (done):** runnable skeleton: health, bcrypt login, JWT middleware, zap, config validation, rate limiting, unified 404/405.
 - **M1 (done):** real MySQL DAO, user table migration, startup ping, pool limits, and shutdown close.
 - **M2 (done):** Redis client lifecycle and shared atomic login rate limiting.
 - **M3:** refresh-token issue/rotate/logout.

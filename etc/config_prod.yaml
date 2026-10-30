@@ -5,13 +5,6 @@ server:
   host: 0.0.0.0
   port: 8080
   mode: release               # gin mode: debug | release | test
-  maxBodyBytes: 1048576       # request body cap (1 MiB)
-  trustedProxies: []          # e.g. ["10.0.0.0/8"]; empty disables X-Forwarded-For trust
-  readTimeoutSeconds: 15
-  writeTimeoutSeconds: 15
-  readHeaderTimeoutSeconds: 5
-  idleTimeoutSeconds: 60
-  shutdownTimeoutSeconds: 10
 
 auth:
   jwtSecret: ""               # set via AUTH_JWTSECRET

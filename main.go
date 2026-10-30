@@ -21,6 +21,17 @@ import (
 	"go.uber.org/zap"
 )
 
+// Fixed HTTP settings. These are intentionally not exposed as configuration in
+// the minimal skeleton; change them here when needed.
+const (
+	httpReadTimeout       = 15 * time.Second
+	httpReadHeaderTimeout = 5 * time.Second
+	httpWriteTimeout      = 15 * time.Second
+	httpIdleTimeout       = 60 * time.Second
+	httpShutdownTimeout   = 10 * time.Second
+	httpMaxHeaderBytes    = 1 << 20
+)
+
 func main() {
 	err := run()
 	if err != nil {
@@ -88,11 +99,11 @@ func run() (runErr error) {
 		Addr:              addr,
 		Handler:           engine,
 		ErrorLog:          logger.StdLogger(),
-		ReadTimeout:       time.Duration(cfg.Server.ReadTimeoutSeconds) * time.Second,
-		ReadHeaderTimeout: time.Duration(cfg.Server.ReadHeaderTimeoutSeconds) * time.Second,
-		WriteTimeout:      time.Duration(cfg.Server.WriteTimeoutSeconds) * time.Second,
-		IdleTimeout:       time.Duration(cfg.Server.IdleTimeoutSeconds) * time.Second,
-		MaxHeaderBytes:    1 << 20,
+		ReadTimeout:       httpReadTimeout,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		WriteTimeout:      httpWriteTimeout,
+		IdleTimeout:       httpIdleTimeout,
+		MaxHeaderBytes:    httpMaxHeaderBytes,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -114,7 +125,7 @@ func run() (runErr error) {
 		logger.App().Info(bg, "server shutting down gracefully")
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Server.ShutdownTimeoutSeconds)*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.App().Error(bg, "graceful shutdown failed", zap.Error(err))

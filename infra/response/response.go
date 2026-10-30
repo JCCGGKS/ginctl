@@ -34,7 +34,6 @@ const (
 	CodeNotFound         = 40400
 	CodeMethodNotAllowed = 40500
 	CodeTimeout          = 40800
-	CodePayloadTooLarge  = 41300
 	CodeTooManyRequests  = 42900
 	CodeInternal         = 50000
 	CodeUnavailable      = 50300
@@ -79,9 +78,6 @@ func MethodNotAllowed(msg string) *AppError {
 }
 func Timeout(msg string) *AppError {
 	return NewAppError(http.StatusRequestTimeout, CodeTimeout, msg)
-}
-func PayloadTooLarge(msg string) *AppError {
-	return NewAppError(http.StatusRequestEntityTooLarge, CodePayloadTooLarge, msg)
 }
 func TooManyRequests(msg string) *AppError {
 	return NewAppError(http.StatusTooManyRequests, CodeTooManyRequests, msg)

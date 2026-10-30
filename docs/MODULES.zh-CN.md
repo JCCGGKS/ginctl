@@ -9,7 +9,7 @@
 - 项目是一个 Gin 服务骨架，启动时依赖可用的 MySQL 和 Redis。
 - 分层主线清晰：`handler -> business -> dao`，`middleware` 负责横切能力，`svc` 负责依赖装配，`infra` 放通用基础设施。
 - 启动流程包含配置加载、配置校验、日志初始化、依赖装配、路由构建、HTTP 服务和优雅关闭。
-- 已有能力：JWT 登录与鉴权、统一响应、错误码、访问日志、请求 ID、请求体限制、Redis 共享登录限流、panic 恢复、三模块日志、可配置的按天切割、日志压缩和保留清理、MySQL/Redis 连接池、启动 ping 和关闭逻辑。
+- 已有能力：JWT 登录与鉴权、统一响应、错误码、访问日志、请求 ID、Redis 共享登录限流、panic 恢复、三模块日志、可配置的按天切割、日志压缩和保留清理、MySQL/Redis 连接池、启动 ping 和关闭逻辑。
 - 当前仍是骨架而非完整生产实现：用户表需要手动迁移，JWT 仍是单机无状态校验，没有刷新、撤销和黑名单。
 - 日志已按 `app`、`gorm`、`access` 拆分，并通过 `request_id` 串联；业务内部日志统一写入 `app`，GORM 查询通过 `db.WithContext(ctx)` 写入 `gorm`，HTTP 请求和 Gin 输出写入 `access`。
 
@@ -46,7 +46,7 @@
 | 配置 | `internal/config/config.go` | 配置结构、默认值、Viper 加载、启动前校验 |
 | 依赖装配 | `internal/svc/service_context.go` | 构造 token manager、DAO 等共享依赖 |
 | 路由 | `internal/router/*.go` | Gin 引擎、中间件顺序、公开/受保护路由、404/405 |
-| 中间件 | `internal/middleware/*.go` | 请求 ID、请求体限制、访问日志、panic 恢复、限流、JWT 鉴权 |
+| 中间件 | `internal/middleware/*.go` | 请求 ID、访问日志、panic 恢复、限流、JWT 鉴权 |
 | 处理器 | `internal/handler/*.go` | 绑定 HTTP 输入、调用业务、输出统一响应 |
 | 业务 | `internal/business/*.go` | 登录编排、凭证校验、错误语义、业务日志 |
 | DAO | `internal/dao/**` | 定义持久化接口，提供 MySQL/GORM 实现 |
@@ -97,7 +97,7 @@ main
 4. `logger.Init`：按 `log.rootDir` 初始化 `app/gorm/access` 三个 logger。
 5. `cfg.Validate`：拒绝端口、超时、JWT、日志等非法配置。
 6. `svc.NewServiceContext`：建立 MySQL 和 Redis 连接、执行启动 ping、设置连接池，构造 token manager 和 GORM UserDAO。
-7. `router.New`：设置 Gin 模式、可信代理、全局中间件和路由。
+7. `router.New`：设置 Gin 模式、固定不信任代理、全局中间件和路由。
 8. 构造 `http.Server`，设置读、写、Header、空闲和优雅关闭超时。
 9. 监听 `SIGINT/SIGTERM`，在 goroutine 中启动 `ListenAndServe`。
 10. 收到信号或监听错误后，使用 `Shutdown` 做优雅关闭。
@@ -108,7 +108,7 @@ main
 - `config loaded` 日志发生在 `cfg.Validate` 之前；配置非法时仍会先记录一条“已加载”，最终错误由入口日志体现。
 - `MaxHeaderBytes` 当前固定为 1 MiB，没有对应配置项。
 - 服务没有独立 readiness 检查；`/healthz` 是轻量 liveness 探针，不检查数据库、Redis 等外部依赖。
-- 关闭流程依赖 `ShutdownTimeoutSeconds`，目前没有额外的后台任务等待逻辑。
+- 优雅关闭超时固定为 10 秒（`main.go` 中的 `httpShutdownTimeout`），目前没有额外的后台任务等待逻辑。
 
 ## 4. 配置模块
 
@@ -134,7 +134,7 @@ main
 
 | 分组 | 关键字段 | 用途 |
 |---|---|---|
-| `server` | host、port、mode、maxBodyBytes、trustedProxies、各类超时 | HTTP Server 和 Gin 行为 |
+| `server` | host、port、mode | HTTP 监听地址和 Gin 模式；HTTP 超时固定在代码中 |
 | `auth` | jwtSecret、accessExpireSeconds、loginRateLimitPerMinute | JWT 和登录限流 |
 | `log` | rootDir、level、format、dailyRotate、timezone、maxSizeMB、maxAgeDays、compress | 日志根目录、级别、编码、按天开关、切日时区、大小分片、保留和压缩 |
 | `mysql` | 连接、库名、连接池、超时 | 建立 GORM 连接、启动 ping、连接池和优雅关闭 |
@@ -146,7 +146,6 @@ main
 
 - 端口范围合法。
 - Gin mode 只能是 `debug`、`release`、`test`，prod 必须是 `release`。
-- 请求体上限和各类 Server 超时必须为正数。
 - JWT secret 必填；prod 长度至少 32 字节。
 - access TTL 为正数，登录限流不能为负数。
 - MySQL host/port/user/database/charset 必填且格式合法；prod 必须提供非空密码；连接池必须为正数或合法非负值，`maxIdleConns` 不能超过 `maxOpenConns`。
@@ -159,7 +158,7 @@ main
 - MySQL 和 Redis 配置都已被 `svc` 消费；任一依赖连接失败都会阻止进程启动。
 - `MySQLConf.DSN` 固定 `parseTime=true&loc=Local`，并包含 5 秒拨号超时、30 秒读超时和 30 秒写超时；当前没有 TLS 参数，生产启用 TLS 时需要扩展 DSN。
 - `loginRateLimitPerMinute` 允许配置为 `0`，但限流器内部把 `max <= 0` 回退为 10，因此“0 表示关闭限流”的直觉并不成立。若需要关闭限流，应显式调整实现或约定。
-- `trustedProxies` 默认为空，即不信任 `X-Forwarded-For`。只有在明确知道入口代理 CIDR 时才应配置。
+- `X-Forwarded-For` 固定不信任，`ClientIP` 始终使用直连地址；如果后续部署在反向代理后并需要真实客户端 IP，需要重新引入可信代理配置。
 
 ## 5. 依赖装配模块
 
@@ -202,13 +201,12 @@ type ServiceContext struct {
 当前注册顺序：
 
 ```text
-RequestID -> BodyLimit -> AccessLog -> Recovery -> 路由中间件 -> handler
+RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 ```
 
 顺序含义：
 
 - `RequestID` 最先执行，后续日志和响应都能拿到请求 ID。
-- `BodyLimit` 在读取请求体前替换 `Request.Body`。
 - `AccessLog` 包住后续链路，请求结束后记录最终状态和耗时。
 - `Recovery` 位于访问日志内部，panic 被转换成 500 后，访问日志仍能记录 500。
 
@@ -224,7 +222,6 @@ RequestID -> BodyLimit -> AccessLog -> Recovery -> 路由中间件 -> handler
 
 - `NoRoute` 返回统一 `404` envelope，业务码 `40400`。
 - `HandleMethodNotAllowed = true`，`NoMethod` 返回统一 `405` envelope，业务码 `40500`。
-- 可信代理配置非法时会记录 app error，并回退为不信任代理。
 
 ### 审查关注
 
@@ -239,7 +236,6 @@ RequestID -> BodyLimit -> AccessLog -> Recovery -> 路由中间件 -> handler
 | 中间件 | 文件 | 行为 | 失败输出 |
 |---|---|---|---|
 | `RequestID` | `requestid.go` | 读取 `X-Request-Id`，没有则生成 16 字节随机 hex；写入 Gin context、request context 和响应头 | 随机源失败时使用 `unknown` |
-| `BodyLimit` | `bodylimit.go` | 用 `http.MaxBytesReader` 限制请求体 | 由 handler 绑定阶段映射为 413 |
 | `AccessLog` | `accesslog.go` | 请求结束后记录 method/path/status/latency/client_ip/user_id | 写 `access` 模块日志 |
 | `Recovery` | `recovery.go` | recover panic，记录 app error 并返回统一 500 | `50000` |
 | `RateLimit` | `ratelimit.go` | 调用统一 `Limiter`，按 ClientIP 计数；超限返回 `Retry-After` | `42900` / Redis 故障 `50300` |
@@ -252,11 +248,10 @@ RequestID -> BodyLimit -> AccessLog -> Recovery -> 路由中间件 -> handler
 - `RateLimit` 只依赖 `infra/ratelimit.Limiter` 接口；登录路由注入 Redis 实现，默认窗口一分钟，默认上限 10。
 - Redis 实现使用 Lua 脚本原子执行 `INCR`、首次请求设置 `PEXPIRE`，并返回剩余 TTL。
 - Redis 调用失败时中间件 fail closed，返回 `50300`，避免依赖故障时静默绕过登录限流。
-- `BodyLimit` 的失败响应不是在中间件中直接写出的，而是由 handler 检测 `*http.MaxBytesError` 后输出 413。
 
 ### 审查关注
 
-- 固定窗口按客户端 IP 计数；可信代理未配置时，`ClientIP` 使用直连地址，部署在代理后需要正确配置 `trustedProxies`。
+- 固定窗口按客户端 IP 计数；`ClientIP` 使用直连地址，部署在反向代理后需要重新评估真实 IP 获取方式。
 - Redis 故障会直接导致登录接口返回 503，这是安全优先的故障策略；如果业务更重视可用性，需要在产品层面明确是否允许 fail open。
 - `infra/ratelimit` 仍保留内存实现，便于单机开发或独立测试，但应用路由默认使用 Redis。
 - 外部传入的 `X-Request-Id` 当前没有长度和字符白名单校验。若直接暴露公网，建议限制长度，或在不受信任场景强制生成服务端 ID。
@@ -274,10 +269,9 @@ RequestID -> BodyLimit -> AccessLog -> Recovery -> 路由中间件 -> handler
 流程：
 
 1. `ShouldBindJSON` 绑定 `schema.LoginRequest`，必填字段由 binding tag 校验。
-2. 如果是请求体超限，返回 413。
-3. 其他绑定失败返回 400。
-4. 构造 `business.NewAuthBusiness(c.Request.Context(), svcCtx)` 并调用 `Login`。
-5. 按错误类型映射：
+2. 绑定失败返回 400。
+3. 构造 `business.NewAuthBusiness(c.Request.Context(), svcCtx)` 并调用 `Login`。
+4. 按错误类型映射：
    - `business.ErrInvalidCredentials` -> 401，不暴露用户不存在或密码错误。
    - context 取消/超时 -> 408。
    - 其他错误 -> `response.Fail`，未知错误降级为统一 500。
@@ -480,7 +474,6 @@ type UserDAO interface {
 | `40400` | 资源不存在 |
 | `40500` | 方法不允许 |
 | `40800` | 超时/请求取消 |
-| `41300` | 请求体过大 |
 | `42900` | 限流 |
 | `50000` | 内部错误 |
 | `50300` | 依赖服务不可用，例如 Redis 限流失败 |
@@ -519,7 +512,6 @@ type UserDAO interface {
 ```text
 POST /api/v1/login
   RequestID
-  -> BodyLimit
   -> AccessLog
   -> Recovery
   -> RateLimit（Redis Lua 固定窗口）
@@ -540,7 +532,7 @@ POST /api/v1/login
 
 ```text
 GET /api/v1/me
-  RequestID -> BodyLimit -> AccessLog -> Recovery
+  RequestID -> AccessLog -> Recovery
   -> middleware.Auth
        -> ExtractBearer
        -> TokenManager.ParseInto
@@ -554,7 +546,7 @@ GET /api/v1/me
 ### 13.3 404 / 405
 
 ```text
-RequestID -> BodyLimit -> AccessLog -> Recovery -> NoRoute / NoMethod
+RequestID -> AccessLog -> Recovery -> NoRoute / NoMethod
   -> response.Fail
   -> AccessLog
 ```
@@ -612,7 +604,7 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 2. **配置是否符合部署方式**：环境变量名、prod secret、trusted proxies、日志目录和超时。
 3. **分层依赖是否越界**：handler 是否只做适配，business 是否直接操作 HTTP，infra 是否反向依赖 internal。
 4. **认证与错误语义是否安全**：账号枚举、JWT 校验、401 文案、未知错误是否泄露内部信息。
-5. **中间件顺序是否正确**：RequestID、BodyLimit、AccessLog、Recovery、限流和鉴权的作用范围。
+5. **中间件顺序是否正确**：RequestID、AccessLog、Recovery、限流和鉴权的作用范围。
 6. **日志是否能串联请求**：请求 ID 是否贯穿 access、app、gorm，敏感信息是否被排除。
 7. **生产缺口是否明确**：迁移流程、Redis 高可用、JWT 生命周期、日志保留和监控。
 8. **扩展点是否清晰**：新增路由、业务、DAO、依赖和日志模块时是否只需改局部装配。

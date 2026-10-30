@@ -5,7 +5,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 
@@ -29,11 +28,6 @@ func NewAuthHandler(svcCtx *svc.ServiceContext) *AuthHandler {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req schema.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
-			response.Fail(c, response.PayloadTooLarge("request body too large"))
-			return
-		}
 		response.Fail(c, response.BadRequest("invalid request body"))
 		return
 	}
