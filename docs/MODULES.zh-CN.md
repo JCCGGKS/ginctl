@@ -26,7 +26,7 @@
 │   ├── handler/               HTTP 适配层
 │   ├── business/              业务编排和业务错误
 │   ├── dao/                   数据访问接口和 GORM 实现
-│   ├── cache/                 应用缓存层，封装可选 Redis 客户端
+│   ├── cache/                 按业务域组织的缓存注册表，封装可选 Redis 客户端
 │   ├── errors/                应用错误类型、业务码和本业务域 sentinel error
 │   └── schema/                HTTP 请求/响应 DTO
 ├── common/                     公共包：跨服务共享的通用能力与表模型
@@ -50,7 +50,7 @@
 | 处理器 | `internal/handler/*.go` | 绑定 HTTP 输入、调用业务、输出统一响应 |
 | 业务 | `internal/business/*.go` | 登录编排、凭证校验、错误语义、业务日志 |
 | DAO | `internal/dao/**` | 统一注册 DAO，定义持久化接口并提供 MySQL/GORM 实现 |
-| 缓存 | `internal/cache/cache.go` | 封装可选 Redis 客户端，向业务暴露应用级 Cache |
+| 缓存 | `internal/cache/registry.go`、`internal/cache/user.go` | 按业务域定义 Cache interface 和 Redis 实现；Redis 生命周期由 `svc` 私有持有 |
 | 错误定义 | `internal/errors/errors.go` | AppError、业务错误码、构造器、本业务域 sentinel error |
 | 存储模型 | `common/model/user.go` | 存储侧用户行结构 |
 | API DTO | `internal/schema/auth.go` | HTTP 请求和响应结构 |
@@ -172,7 +172,7 @@ type ServiceContext struct {
     Config       *config.Config
     JWTManager   *common.JWTManager
     DAO          *dao.Registry
-    Cache        *cache.Cache
+    Cache        *cache.Registry
 }
 ```
 
@@ -183,9 +183,10 @@ type ServiceContext struct {
 - 调用 `openDatabase` 打开 MySQL：使用 GORM MySQL dialector，注入 `gorm` 模块 logger，设置连接池上限、生命周期和空闲时间，并在启动阶段 ping。
 - 调用 `openRedis` 尝试打开 Redis：设置密码、DB、连接池、拨号和读写超时，并在启动阶段 ping；失败时记录 warning、关闭临时客户端，并用不可用状态构造 `ServiceContext.Cache`，不会关闭 MySQL。
 - 构造 `dao.NewRegistry(db)`，所有 DAO 从这里统一获取。
-- 用 Redis 客户端构造 `cache.New(redisClient)`；业务只依赖 Cache 层，不直接持有 `*redis.Client`。
+- 用 Redis 客户端构造 `cache.NewRegistry(redisClient)`；Registry 只聚合业务域 Cache interface，Redis 客户端由 `ServiceContext` 私有持有和关闭，业务不直接持有 `*redis.Client`。
+- `UserCache` 提供 `Get/Set/Delete`，缓存未命中返回 `internal/errors.ErrCacheMiss`，Redis 不可用返回 `internal/errors.ErrCacheUnavailable`；当前尚未接入业务调用。
 - 用配置构造 `common.JWTManager`。
-- 提供幂等的 `Close()`，关闭底层 `*sql.DB` 和 Cache 持有的客户端。
+- 提供幂等的 `Close()`，关闭底层 `*sql.DB` 和 Redis 客户端。
 
 ### 审查关注
 

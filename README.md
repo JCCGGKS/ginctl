@@ -28,7 +28,7 @@ internal/
   handler/                health, auth login, me (thin HTTP adapters)
   business/                  auth login (business orchestration)
   dao/                    DAO registry + interfaces + GORM implementations
-  cache/                  application cache wrapper around the optional Redis client
+  cache/                  domain-scoped cache interfaces and Redis implementations
   errors/                 application errors, business codes, and domain sentinels
   schema/                 request/response DTOs
 common/                   public packages shared across services

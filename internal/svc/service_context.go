@@ -16,6 +16,7 @@ import (
 	"gin-scaffold/internal/config"
 	"gin-scaffold/internal/dao"
 
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -25,11 +26,12 @@ type ServiceContext struct {
 	Config     *config.Config
 	JWTManager *common.JWTManager
 	DAO        *dao.Registry
-	Cache      *cache.Cache
+	Cache      *cache.Registry
 
-	sqlDB     *sql.DB
-	closeOnce sync.Once
-	closeErr  error
+	sqlDB       *sql.DB
+	redisClient *redis.Client
+	closeOnce   sync.Once
+	closeErr    error
 }
 
 // NewServiceContext assembles all dependencies from config. It returns an error
@@ -58,15 +60,16 @@ func NewServiceContext(c *config.Config) (*ServiceContext, error) {
 	}
 
 	return &ServiceContext{
-		Config:     c,
-		JWTManager: common.NewJWTManager(secret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
-		DAO:        dao.NewRegistry(db),
-		Cache:      cache.New(redisClient),
-		sqlDB:      sqlDB,
+		Config:      c,
+		JWTManager:  common.NewJWTManager(secret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
+		DAO:         dao.NewRegistry(db),
+		Cache:       cache.NewRegistry(redisClient),
+		sqlDB:       sqlDB,
+		redisClient: redisClient,
 	}, nil
 }
 
-// Close releases the database connection pool and cache client. It is safe to
+// Close releases the database connection pool and Redis client. It is safe to
 // call more than once and is intended for process shutdown and failed-startup
 // cleanup.
 func (s *ServiceContext) Close() error {
@@ -78,8 +81,8 @@ func (s *ServiceContext) Close() error {
 		if s.sqlDB != nil {
 			errs = append(errs, s.sqlDB.Close())
 		}
-		if s.Cache != nil {
-			errs = append(errs, s.Cache.Close())
+		if s.redisClient != nil {
+			errs = append(errs, s.redisClient.Close())
 		}
 		s.closeErr = errors.Join(errs...)
 	})

@@ -65,4 +65,10 @@ var (
 	// passwords. Handlers map it to a single public 401 response so callers
 	// cannot distinguish account existence.
 	ErrInvalidCredentials = stderrors.New("invalid credentials")
+
+	// ErrCacheMiss reports that the requested cache key is not present.
+	ErrCacheMiss = stderrors.New("cache miss")
+
+	// ErrCacheUnavailable reports that the cache backend is unavailable.
+	ErrCacheUnavailable = stderrors.New("cache unavailable")
 )
