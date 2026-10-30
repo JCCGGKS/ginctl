@@ -15,10 +15,30 @@ const ctxClaimsKey = "auth_claims"
 // middleware while keeping error types under each service's internal/errors.
 type ErrorBuilder func(string) error
 
+// NoAuthRoutes lists routes that bypass JWT auth even when mounted on an
+// authenticated group. Keys use the "METHOD /full/route/pattern" form, for
+// example "POST /api/v1/login".
+type NoAuthRoutes map[string]struct{}
+
+// Skip reports whether the current request matches a no-auth route.
+func (r NoAuthRoutes) Skip(c *gin.Context) bool {
+	route := c.FullPath()
+	if route == "" {
+		route = c.Request.URL.Path
+	}
+	_, ok := r[c.Request.Method+" "+route]
+	return ok
+}
+
 // Auth verifies the Bearer JWT and stores the claims on the gin context.
 // Protected handlers read identity via CurrentClaims(c).
-func Auth(tm *common.JWTManager, unauthorized ErrorBuilder) gin.HandlerFunc {
+func Auth(tm *common.JWTManager, unauthorized ErrorBuilder, noAuth NoAuthRoutes) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if noAuth.Skip(c) {
+			c.Next()
+			return
+		}
+
 		raw := common.ExtractBearer(c.GetHeader("Authorization"))
 		if raw == "" {
 			common.Fail(c, unauthorized("authorization JWT is required"))

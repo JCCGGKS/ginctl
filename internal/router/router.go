@@ -12,6 +12,12 @@ import (
 	"gin-scaffold/internal/svc"
 )
 
+// noAuthRoutes lists endpoints mounted on the authenticated /api/v1 group that
+// stay public. Keys are "METHOD /full/route/pattern".
+var noAuthRoutes = middleware.NoAuthRoutes{
+	"POST /api/v1/login": {},
+}
+
 // New builds the gin engine with global middleware and all routes.
 func New(svcCtx *svc.ServiceContext) *gin.Engine {
 	gin.SetMode(svcCtx.Config.GinMode())
@@ -46,15 +52,13 @@ func New(svcCtx *svc.ServiceContext) *gin.Engine {
 	return engine
 }
 
-// registerRoutes wires every HTTP route. Public and protected groups are
-// declared explicitly so the wiring is easy to read, override, and test.
+// registerRoutes wires every HTTP route. /api/v1 authenticates by default;
+// public endpoints are explicit entries in noAuthRoutes.
 func registerRoutes(engine *gin.Engine, svcCtx *svc.ServiceContext) {
 	engine.GET("/healthz", handler.Health)
 
 	authHandler := handler.NewAuthHandler(svcCtx)
-	v1 := engine.Group("/api/v1")
+	v1 := engine.Group("/api/v1", middleware.Auth(svcCtx.JWTManager, apperrors.Unauthorized, noAuthRoutes))
 	v1.POST("/login", authHandler.Login)
-
-	protected := engine.Group("/api/v1", middleware.Auth(svcCtx.JWTManager, apperrors.Unauthorized))
-	protected.GET("/me", authHandler.Me)
+	v1.GET("/me", authHandler.Me)
 }

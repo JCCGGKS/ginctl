@@ -217,7 +217,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 | 方法 | 路径 | 中间件 | 说明 |
 |---|---|---|---|
 | `GET` | `/healthz` | 全局中间件 | 极简存活探针，刻意不走统一 envelope |
-| `POST` | `/api/v1/login` | 全局中间件 | 用户名密码登录并签发 JWT |
+| `POST` | `/api/v1/login` | 全局 + JWT（白名单跳过） | 用户名密码登录并签发 JWT |
 | `GET` | `/api/v1/me` | 全局 + JWT 鉴权 | 返回 JWT claims 中的当前用户身份 |
 
 ### 异常路由
@@ -228,7 +228,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 ### 审查关注
 
 - `AccessLog` 必须在 `Recovery` 外层；如果顺序反过来，panic 恢复后的访问日志可能缺失最终状态。
-- 新增受保护路由时应放入 `protected` 分组，避免遗漏 `middleware.Auth`。
+- `/api/v1` 下的路由默认经过 `middleware.Auth`；确需公开的接口加入 `internal/router/router.go` 的 `noAuthRoutes`，key 使用 `METHOD /full/route/pattern`（如 `POST /api/v1/login`）。
 
 ## 7. 中间件模块
 
@@ -239,12 +239,13 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 | `RequestID` | `requestid.go` | 读取 `X-Request-Id`，没有则生成 16 字节随机 hex；写入 Gin context、request context 和响应头 | 随机源失败时使用 `unknown` |
 | `AccessLog` | `accesslog.go` | 请求结束后记录 method/path/status/latency/client_ip/user_id | 写 `access` 模块日志 |
 | `Recovery` | `recovery.go` | recover panic，记录 app error 并返回统一 500 | `50000` |
-| `Auth` | `auth.go` | 校验 `Authorization: Bearer <JWT>`，解析后把 claims 放入 Gin context | `40100` |
+| `Auth` | `auth.go` | 校验 `Authorization: Bearer <JWT>`，解析后把 claims 放入 Gin context；命中 `NoAuthRoutes` 时跳过校验 | `40100` |
 
 ### 关键行为
 
 - `AccessLog` 自动从 request context 获取 `request_id`；鉴权成功时补充 `user_id`。
 - `Auth` 只接受 HS256，并要求 secret 已配置。
+- `Auth` 的免鉴权白名单按 `METHOD + 完整路由模板` 精确匹配，避免只按路径放行导致其他方法被误放开。
 
 ### 审查关注
 
