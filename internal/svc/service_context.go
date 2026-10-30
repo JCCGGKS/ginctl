@@ -14,6 +14,7 @@ import (
 	"gin-scaffold/internal/dao"
 	gormdao "gin-scaffold/internal/dao/gorm"
 
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
@@ -24,6 +25,7 @@ type ServiceContext struct {
 	TokenManager *token.Manager
 	UserDAO      dao.UserDAO
 	DB           *gorm.DB
+	Redis        *redis.Client
 
 	sqlDB     *sql.DB
 	closeOnce sync.Once
@@ -45,12 +47,18 @@ func NewServiceContext(c *config.Config) (*ServiceContext, error) {
 	if err != nil {
 		return nil, err
 	}
+	redisClient, err := openRedis(c.Redis)
+	if err != nil {
+		_ = sqlDB.Close()
+		return nil, err
+	}
 
 	return &ServiceContext{
 		Config:       c,
 		TokenManager: token.NewManager(secret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
 		UserDAO:      gormdao.NewUserDAO(db),
 		DB:           db,
+		Redis:        redisClient,
 		sqlDB:        sqlDB,
 	}, nil
 }
@@ -62,9 +70,14 @@ func (s *ServiceContext) Close() error {
 		return nil
 	}
 	s.closeOnce.Do(func() {
+		var errs []error
 		if s.sqlDB != nil {
-			s.closeErr = s.sqlDB.Close()
+			errs = append(errs, s.sqlDB.Close())
 		}
+		if s.Redis != nil {
+			errs = append(errs, s.Redis.Close())
+		}
+		s.closeErr = errors.Join(errs...)
 	})
 	return s.closeErr
 }

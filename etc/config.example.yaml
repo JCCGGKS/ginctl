@@ -2,7 +2,7 @@
 # 用法：复制为 etc/config_local.yaml（已被 .gitignore 忽略）或 etc/config_<env>.yaml 后修改。
 # 优先级：代码默认值 < YAML 文件 < 环境变量。
 # 环境变量名没有前缀，配置路径中的点会替换为下划线，例如 server.port -> SERVER_PORT。
-# prod 额外要求：server.mode 必须是 release，auth.jwtSecret 至少 32 字节，mysql.password 不能为空。
+# prod 额外要求：server.mode 必须是 release，auth.jwtSecret 至少 32 字节，mysql.password 和 redis.password 不能为空。
 
 server:
   host: "0.0.0.0"                    # HTTP 监听地址；0.0.0.0 表示监听所有网卡，127.0.0.1 仅本机访问
@@ -44,13 +44,13 @@ mysql:
   connMaxIdleTimeSeconds: 60         # 单个连接最长空闲时间，单位秒；超过后按连接池实现回收
 
 redis:
-  host: "127.0.0.1"                  # Redis 主机地址；当前骨架只保存配置并生成 Addr，尚未创建 Redis 客户端
+  host: "127.0.0.1"                  # Redis 主机地址；服务启动时建立客户端并执行 ping，连接失败则进程退出
   port: 6379                         # Redis 端口；环境变量 REDIS_PORT
-  password: "change-me"              # Redis 密码；建议通过 REDIS_PASSWORD 注入，不要提交真实密码
+  password: "change-me"              # Redis 密码；prod 必填，建议通过 REDIS_PASSWORD 注入，不要提交真实密码
   db: 0                              # Redis 逻辑数据库编号，范围由 Redis 服务端配置决定
-  poolSize: 100                      # Redis 客户端连接池最大连接数；接入客户端后使用
-  minIdleConns: 10                   # Redis 连接池最小空闲连接数；用于减少突发请求时的建连开销
+  poolSize: 100                      # Redis 客户端连接池最大连接数；必须大于 0
+  minIdleConns: 10                   # Redis 连接池最小空闲连接数；不能超过 poolSize
   dialTimeoutSeconds: 5              # 建立 Redis 连接的超时时间，单位秒
   readTimeoutSeconds: 3              # Redis 单次读取超时时间，单位秒
   writeTimeoutSeconds: 3             # Redis 单次写入超时时间，单位秒
-  idleTimeoutSeconds: 300            # Redis 空闲连接回收时间，单位秒；具体行为取决于使用的客户端
+  idleTimeoutSeconds: 300            # Redis 连接最长空闲时间，单位秒；超过后连接池会回收

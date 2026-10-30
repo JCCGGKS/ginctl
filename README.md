@@ -2,8 +2,8 @@
 
 A small, reusable Gin engineering skeleton with clean layering, graceful
 startup/shutdown, structured logging (zap), and JWT auth middleware. Clone it
-as the starting point for new Gin services and extend the MySQL/GORM data
-layer for your own storage.
+as the starting point for new Gin services and extend the MySQL/GORM and Redis
+layers for your own storage.
 
 ## What it includes
 
@@ -14,7 +14,7 @@ layer for your own storage.
 - Login rate limiting, request-body limits, and proxy-aware client IP handling.
 - Interface-based data access: `internal/dao` contract + MySQL/GORM implementation.
 - Per-environment config files: `etc/config_<env>.yaml`.
-- MySQL connection pool, startup ping, and graceful close; Redis config stub.
+- MySQL and Redis clients with connection pools, startup ping, and graceful close.
 
 ## Layout
 
@@ -35,6 +35,7 @@ infra/
   logger/                 per-module zap loggers + daily rotation + gorm adapter
   requestid/              request id context carrier
   response/               unified envelope + AppError + business codes
+  ratelimit/              shared limiter interface + Redis/memory backends
   token/                  JWT issue/parse (HS256 + custom claims)
   pagination/             page/size + id cursor normalization
 docs/ARCHITECTURE.md      design rationale
@@ -55,7 +56,7 @@ migrations/               SQL schema migrations
 
 ## Run
 
-MySQL is now a startup dependency. Create the schema before starting the
+MySQL and Redis are startup dependencies. Create the schema before starting the
 server:
 
 ```bash
@@ -90,9 +91,15 @@ with `gorm.io/driver/mysql`, applies the configured pool limits, pings the
 server before serving traffic, and closes the pool during shutdown. A failed
 connection is a startup error rather than a deferred request failure.
 
+Redis is opened with `go-redis`, configured with the pool and timeout values in
+YAML, and pinged before startup. Login rate limits use an atomic fixed-window
+Lua script under `ratelimit:login:<client-ip>`; counters are shared across
+instances. If Redis fails during a request, the login endpoint fails closed with
+`503` rather than silently disabling brute-force protection.
+
 `config.MySQLConf.DSN()` uses `parseTime=true`, local timezone interpretation,
-a 5s dial timeout, and 30s read/write timeouts. `config.RedisConf.Addr()`
-remains a helper for wiring Redis later.
+a 5s dial timeout, and 30s read/write timeouts. `config.RedisConf.Addr()` is
+used by the shared Redis client.
 
 ## Logging
 
@@ -193,12 +200,13 @@ curl -s http://127.0.0.1:8080/api/v1/me \
 The `users` table is defined in `migrations/001_create_users.sql`; the service
 does not run `AutoMigrate`. The `jwtSecret` is empty in prod and must be
 supplied via `AUTH_JWTSECRET`; the server refuses to start without it. In prod,
-`mysql.password` is also required and should be injected via `MYSQL_PASSWORD`.
+`mysql.password` and `redis.password` are also required and should be injected
+via `MYSQL_PASSWORD` and `REDIS_PASSWORD`.
 
 ## Security defaults
 
-- `auth.loginRateLimitPerMinute` limits login attempts per client IP (default 10;
-  in-process, so use Redis/shared storage across multiple instances).
+- `auth.loginRateLimitPerMinute` limits login attempts per client IP (default 10)
+  with shared Redis counters, so multiple instances enforce one limit.
 - `server.maxBodyBytes` caps request bodies (default 1 MiB).
 - `server.trustedProxies` is empty by default, which disables `X-Forwarded-For`
   trust. Set explicit CIDRs only for a known load balancer.
@@ -210,5 +218,6 @@ supplied via `AUTH_JWTSECRET`; the server refuses to start without it. In prod,
 Every business JSON endpoint returns `{code,msg,data,request_id,timestamp}`.
 `code=0` means success; business codes are independent of HTTP status (e.g.
 `40100` for unauthorized, `40400` for not found, `42900` for rate limiting,
-`50000` for internal errors). `GET /healthz` is the deliberate exception: it
-returns a minimal `{status,time}` body for infrastructure probes.
+`50000` for internal errors, `50300` for unavailable dependencies). `GET
+/healthz` is the deliberate exception: it returns a minimal `{status,time}` body
+for infrastructure probes.

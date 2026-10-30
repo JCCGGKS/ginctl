@@ -46,7 +46,7 @@ pattern · ServiceContext DI · JWT auth + claims-in-context · per-module zap
 logging with request-id correlation and daily rotation · interface-based
 UserDAO (MySQL/GORM) + bcrypt login · migration-based schema · pagination
 normalization · viper config (per-env file + defaults + env overrides) ·
-graceful shutdown.
+graceful shutdown · Redis-backed shared login rate limiting.
 
 ## 4. Deliberately left in the business project
 
@@ -56,14 +56,14 @@ Redis aggregation + async flush · concrete SQL/schema.
 
 ## 5. Design principles of the skeleton
 
-Small dependency set (gin + jwt + viper + zap + gorm/mysql) · thin handler / thick business /
+Small dependency set (gin + jwt + viper + zap + gorm/mysql + redis) · thin handler / thick business /
 cross-cutting middleware · interface-based DAO · one response contract · deps
 centralized in svc · observability (request id + app/gorm/access
 logs + panic guard + 5xx error logs) · externalized config with defaults + env
-overrides and startup validation · login rate limiting + request-body limits +
+overrides and startup validation · shared Redis login rate limiting + request-body limits +
 explicit proxy trust · business errors decoupled from HTTP status · graceful
-shutdown · fail-fast MySQL connectivity with bounded connection pool and
-startup ping.
+shutdown · fail-fast MySQL and Redis connectivity with bounded connection pools
+and startup pings.
 
 ## 6. Request flows
 
@@ -78,7 +78,7 @@ Login and protected read (`POST /api/v1/login`, `GET /api/v1/me`):
 
 ```
 POST /api/v1/login:
-  RequestID -> BodyLimit -> AccessLog -> Recovery -> RateLimit -> handler.Login.bind
+  RequestID -> BodyLimit -> AccessLog -> Recovery -> RateLimit(Redis Lua) -> handler.Login.bind
     -> business.Login (dao lookup + timing-equalized bcrypt compare) -> token.Issue
     -> response.OK {access_token, user}
 
@@ -96,6 +96,7 @@ Unknown route / wrong method:
 
 - **M0 (done):** runnable skeleton: health, bcrypt login, JWT middleware, zap, config validation, rate limiting, unified 404/405, body limits.
 - **M1 (done):** real MySQL DAO, user table migration, startup ping, pool limits, and shutdown close.
-- **M2:** refresh-token issue/rotate/logout.
-- **M3:** tracing/metrics, validation error i18n.
-- **M4:** turn it into a code generator / `gonew` template.
+- **M2 (done):** Redis client lifecycle and shared atomic login rate limiting.
+- **M3:** refresh-token issue/rotate/logout.
+- **M4:** tracing/metrics, validation error i18n.
+- **M5:** turn it into a code generator / `gonew` template.

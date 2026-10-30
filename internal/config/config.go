@@ -189,6 +189,36 @@ func (c Config) Validate(env string) error {
 	if c.MySQL.ConnMaxIdleTimeSeconds < 0 {
 		return fmt.Errorf("mysql.connMaxIdleTimeSeconds must not be negative, got %d", c.MySQL.ConnMaxIdleTimeSeconds)
 	}
+	if strings.TrimSpace(c.Redis.Host) == "" {
+		return errors.New("redis.host is required")
+	}
+	if c.Redis.Port < 1 || c.Redis.Port > 65535 {
+		return fmt.Errorf("redis.port must be between 1 and 65535, got %d", c.Redis.Port)
+	}
+	if strings.EqualFold(env, "prod") && c.Redis.Password == "" {
+		return errors.New("redis.password is required in prod (set REDIS_PASSWORD)")
+	}
+	if c.Redis.DB < 0 {
+		return fmt.Errorf("redis.db must not be negative, got %d", c.Redis.DB)
+	}
+	if c.Redis.PoolSize <= 0 {
+		return fmt.Errorf("redis.poolSize must be positive, got %d", c.Redis.PoolSize)
+	}
+	if c.Redis.MinIdleConns < 0 || c.Redis.MinIdleConns > c.Redis.PoolSize {
+		return fmt.Errorf("redis.minIdleConns must be between 0 and poolSize, got %d", c.Redis.MinIdleConns)
+	}
+	if c.Redis.DialTimeoutSeconds <= 0 {
+		return fmt.Errorf("redis.dialTimeoutSeconds must be positive, got %d", c.Redis.DialTimeoutSeconds)
+	}
+	if c.Redis.ReadTimeoutSeconds <= 0 {
+		return fmt.Errorf("redis.readTimeoutSeconds must be positive, got %d", c.Redis.ReadTimeoutSeconds)
+	}
+	if c.Redis.WriteTimeoutSeconds <= 0 {
+		return fmt.Errorf("redis.writeTimeoutSeconds must be positive, got %d", c.Redis.WriteTimeoutSeconds)
+	}
+	if c.Redis.IdleTimeoutSeconds <= 0 {
+		return fmt.Errorf("redis.idleTimeoutSeconds must be positive, got %d", c.Redis.IdleTimeoutSeconds)
+	}
 	switch strings.ToLower(c.Log.Level) {
 	case "debug", "info", "warn", "error":
 	default:

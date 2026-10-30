@@ -37,6 +37,7 @@ const (
 	CodePayloadTooLarge  = 41300
 	CodeTooManyRequests  = 42900
 	CodeInternal         = 50000
+	CodeUnavailable      = 50300
 )
 
 // gin.Context key used to carry per-request metadata.
@@ -87,6 +88,9 @@ func TooManyRequests(msg string) *AppError {
 }
 func Internal(msg string) *AppError {
 	return NewAppError(http.StatusInternalServerError, CodeInternal, msg)
+}
+func ServiceUnavailable(msg string) *AppError {
+	return NewAppError(http.StatusServiceUnavailable, CodeUnavailable, msg)
 }
 
 // OK writes a success envelope with HTTP 200.
