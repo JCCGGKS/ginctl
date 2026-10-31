@@ -10,9 +10,9 @@ source of study is the `mysurl1` go-zero short-link service; the goal was to
   what is configurable, schema = what the API exchanges, model = one row, dao =
   how data is stored, business = when/why, handler = how HTTP enters, middleware =
   cross-cutting, svc = how deps assemble, common = reused building blocks).
-- **Thin handlers.** Fixed shape: parse → new business → call → unified write.
-- **Logic constructor pattern** `(ctx, svcCtx)`; methods orchestrate
-  validate → cache → dao → assemble.
+- **Thin handlers.** Fixed shape: parse → call business → unified write.
+- **Startup-created business services** using the shared ServiceContext;
+  each request only passes its context and input DTO into a use-case method.
 - **Pure DAOs.** Raw SQL, soft delete, dynamic query builder, cursor pagination
   + count, transactions.
 - **Unified response + typed error** (`AppError` mapped via `errors.As`).
@@ -41,11 +41,11 @@ logx remain the go-zero-bound pieces.
 
 ## 3. Migrated into this skeleton
 
-Layering & boundaries · unified response + typed error · business constructor
-pattern · ServiceContext DI · JWT auth + claims-in-context · per-module zap
+Layering & boundaries · unified response + typed error · startup-created
+business services · ServiceContext DI · JWT auth + claims-in-context · per-module zap
 logging with request-id correlation and daily rotation · interface-based
-UserDAO (MySQL/GORM) + bcrypt login · migration-based schema · pagination
-normalization · viper config (`-f` file + `server.env` + defaults + env overrides) ·
+UserDAO (MySQL/GORM) + bcrypt login · migration-based schema · viper config
+(`-f` file + `server.env` + defaults + env overrides) ·
 graceful shutdown · optional Redis client infrastructure (no route consumer yet).
 
 ## 4. Deliberately left in the business project
@@ -70,7 +70,7 @@ bounded connection pools and startup pings.
 Public liveness probe (`GET /healthz`):
 
 ```
-RequestID -> AccessLog -> Recovery -> handler.Health
+RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> handler.Health
   -> 200 {status:"ok"}
 ```
 
@@ -78,17 +78,19 @@ Login and protected read (`POST /api/v1/login`, `GET /api/v1/me`):
 
 ```
 POST /api/v1/login:
-  RequestID -> AccessLog -> Recovery -> handler.Login.bind
-    -> business.Login (dao lookup + timing-equalized bcrypt compare) -> JWTManager.Issue
+  RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery
+  -> rate limit (per client IP) -> handler.Login.bind
+    -> AuthService.Login (dao lookup + timing-equalized bcrypt compare) -> JWTManager.Issue
     -> common.OK {access_token, user}
 
 GET /api/v1/me:
-  RequestID -> AccessLog -> Recovery -> middleware.Auth (verify Bearer + set claims)
+  RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery
+    -> middleware.Auth (verify Bearer + set claims)
     -> handler.Me (CurrentClaims) -> common.OK {id, username}
 <- AccessLog logs status + request_id (+ user_id when authenticated)
 
 Unknown route / wrong method:
-  RequestID -> AccessLog -> Recovery -> NoRoute/NoMethod
+  RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> NoRoute/NoMethod
     -> common.Fail (40400 / 40500)
 ```
 
@@ -96,7 +98,7 @@ Unknown route / wrong method:
 
 - **M0 (done):** runnable skeleton: health, bcrypt login, JWT middleware, zap, config validation, unified 404/405.
 - **M1 (done):** real MySQL DAO, user table migration, startup ping, pool limits, and shutdown close.
-- **M2 (done):** optional Redis client lifecycle; login rate limiting removed for now.
+- **M2 (done):** optional Redis client lifecycle; in-process per-IP login rate limit.
 - **M3:** refresh JWT issue/rotate/logout.
 - **M4:** tracing/metrics, validation error i18n.
 - **M5:** turn it into a code generator / `gonew` template.

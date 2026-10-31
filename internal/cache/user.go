@@ -26,7 +26,9 @@ type redisUserCache struct {
 	client *redis.Client
 }
 
-func newRedisUserCache(client *redis.Client) *redisUserCache {
+// NewUserCache builds the Redis-backed user cache. A nil client is allowed and
+// leaves the cache in an unavailable state until Redis is configured.
+func NewUserCache(client *redis.Client) UserCache {
 	return &redisUserCache{client: client}
 }
 

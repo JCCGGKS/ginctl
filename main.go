@@ -24,8 +24,13 @@ import (
 )
 
 const (
-	defaultConfigFile   = "etc/config_dev.yaml"
-	httpShutdownTimeout = 10 * time.Second
+	defaultConfigFile     = "etc/config_dev.yaml"
+	httpShutdownTimeout   = 10 * time.Second
+	httpReadHeaderTimeout = 5 * time.Second
+	httpReadTimeout       = 15 * time.Second
+	httpWriteTimeout      = 30 * time.Second
+	httpIdleTimeout       = 60 * time.Second
+	httpMaxHeaderBytes    = 64 << 10
 )
 
 func main() {
@@ -96,9 +101,14 @@ func serve(handler http.Handler, cfg *config.Config) error {
 	bg := context.Background()
 	addr := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 	srv := &http.Server{
-		Addr:     addr,
-		Handler:  handler,
-		ErrorLog: logger.StdLogger(),
+		Addr:              addr,
+		Handler:           handler,
+		ErrorLog:          logger.StdLogger(),
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		ReadTimeout:       httpReadTimeout,
+		WriteTimeout:      httpWriteTimeout,
+		IdleTimeout:       httpIdleTimeout,
+		MaxHeaderBytes:    httpMaxHeaderBytes,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

@@ -6,14 +6,16 @@
 package config
 
 import (
-	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 	_ "time/tzdata"
 
 	"gin-scaffold/common/logger"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/spf13/viper"
 )
 
@@ -39,6 +41,7 @@ type ServerConf struct {
 type AuthConf struct {
 	JWTSecret           string `mapstructure:"jwtSecret"`
 	AccessExpireSeconds int    `mapstructure:"accessExpireSeconds"`
+	LoginRatePerMinute  int    `mapstructure:"loginRatePerMinute"`
 }
 
 // MySQLConf holds connection-pool settings for a MySQL instance. DSN builds the
@@ -77,157 +80,43 @@ type RedisConf struct {
 // 5s and socket reads/writes to 30s so an unreachable server cannot block
 // startup or requests indefinitely.
 func (m MySQLConf) DSN() string {
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=true&loc=Local&timeout=5s&readTimeout=30s&writeTimeout=30s",
-		m.User, m.Password, m.Host, m.Port, m.Database, m.Charset)
+	cfg := mysql.NewConfig()
+	cfg.User = m.User
+	cfg.Passwd = m.Password
+	cfg.Net = "tcp"
+	cfg.Addr = net.JoinHostPort(m.Host, strconv.Itoa(m.Port))
+	cfg.DBName = m.Database
+	cfg.ParseTime = true
+	cfg.Loc = time.Local
+	cfg.Timeout = 5 * time.Second
+	cfg.ReadTimeout = 30 * time.Second
+	cfg.WriteTimeout = 30 * time.Second
+	cfg.Params = map[string]string{"charset": m.Charset}
+	return cfg.FormatDSN()
 }
 
 // Addr returns the host:port address for Redis clients.
 func (r RedisConf) Addr() string {
-	return fmt.Sprintf("%s:%d", r.Host, r.Port)
+	return net.JoinHostPort(r.Host, strconv.Itoa(r.Port))
 }
 
-// validateEnv rejects environment names other than dev, test, and prod.
-func validateEnv(env string) error {
-	switch strings.ToLower(env) {
-	case "dev", "test", "prod":
-		return nil
-	default:
-		return fmt.Errorf("env must be dev, test, or prod, got %q", env)
-	}
+var environmentGinModes = map[string]string{
+	"dev":  "debug",
+	"test": "test",
+	"prod": "release",
 }
 
 // GinMode maps the configured environment to Gin's runtime mode.
 func (c Config) GinMode() string {
-	switch strings.ToLower(strings.TrimSpace(c.Server.Env)) {
-	case "prod":
-		return "release"
-	case "test":
-		return "test"
-	default:
-		return "debug"
+	if mode, ok := environmentGinModes[strings.ToLower(strings.TrimSpace(c.Server.Env))]; ok {
+		return mode
 	}
-}
-
-// Validate rejects configuration that would otherwise fail late at runtime.
-func (c Config) Validate() error {
-	if err := validateEnv(c.Server.Env); err != nil {
-		return err
-	}
-	if c.Server.Port < 1 || c.Server.Port > 65535 {
-		return fmt.Errorf("server.port must be between 1 and 65535, got %d", c.Server.Port)
-	}
-	secret := strings.TrimSpace(c.Auth.JWTSecret)
-	if secret == "" {
-		return errors.New("auth.jwtSecret is required (set AUTH_JWTSECRET)")
-	}
-	if strings.EqualFold(c.Server.Env, "prod") && len(secret) < 32 {
-		return errors.New("auth.jwtSecret must be at least 32 bytes in prod")
-	}
-	if c.Auth.AccessExpireSeconds <= 0 {
-		return fmt.Errorf("auth.accessExpireSeconds must be positive, got %d", c.Auth.AccessExpireSeconds)
-	}
-	if strings.TrimSpace(c.MySQL.Host) == "" {
-		return errors.New("mysql.host is required")
-	}
-	if c.MySQL.Port < 1 || c.MySQL.Port > 65535 {
-		return fmt.Errorf("mysql.port must be between 1 and 65535, got %d", c.MySQL.Port)
-	}
-	if strings.TrimSpace(c.MySQL.User) == "" {
-		return errors.New("mysql.user is required")
-	}
-	if strings.EqualFold(c.Server.Env, "prod") && c.MySQL.Password == "" {
-		return errors.New("mysql.password is required in prod (set MYSQL_PASSWORD)")
-	}
-	if strings.TrimSpace(c.MySQL.Database) == "" {
-		return errors.New("mysql.database is required")
-	}
-	if strings.TrimSpace(c.MySQL.Charset) == "" {
-		return errors.New("mysql.charset is required")
-	}
-	if c.MySQL.MaxOpenConns <= 0 {
-		return fmt.Errorf("mysql.maxOpenConns must be positive, got %d", c.MySQL.MaxOpenConns)
-	}
-	if c.MySQL.MaxIdleConns < 0 || c.MySQL.MaxIdleConns > c.MySQL.MaxOpenConns {
-		return fmt.Errorf("mysql.maxIdleConns must be between 0 and maxOpenConns, got %d", c.MySQL.MaxIdleConns)
-	}
-	if c.MySQL.ConnMaxLifetimeSeconds < 0 {
-		return fmt.Errorf("mysql.connMaxLifetimeSeconds must not be negative, got %d", c.MySQL.ConnMaxLifetimeSeconds)
-	}
-	if c.MySQL.ConnMaxIdleTimeSeconds < 0 {
-		return fmt.Errorf("mysql.connMaxIdleTimeSeconds must not be negative, got %d", c.MySQL.ConnMaxIdleTimeSeconds)
-	}
-	if strings.TrimSpace(c.Redis.Host) == "" {
-		return errors.New("redis.host is required")
-	}
-	if c.Redis.Port < 1 || c.Redis.Port > 65535 {
-		return fmt.Errorf("redis.port must be between 1 and 65535, got %d", c.Redis.Port)
-	}
-	if strings.EqualFold(c.Server.Env, "prod") && c.Redis.Password == "" {
-		return errors.New("redis.password is required in prod (set REDIS_PASSWORD)")
-	}
-	if c.Redis.DB < 0 {
-		return fmt.Errorf("redis.db must not be negative, got %d", c.Redis.DB)
-	}
-	if c.Redis.PoolSize <= 0 {
-		return fmt.Errorf("redis.poolSize must be positive, got %d", c.Redis.PoolSize)
-	}
-	if c.Redis.MinIdleConns < 0 || c.Redis.MinIdleConns > c.Redis.PoolSize {
-		return fmt.Errorf("redis.minIdleConns must be between 0 and poolSize, got %d", c.Redis.MinIdleConns)
-	}
-	if c.Redis.DialTimeoutSeconds <= 0 {
-		return fmt.Errorf("redis.dialTimeoutSeconds must be positive, got %d", c.Redis.DialTimeoutSeconds)
-	}
-	if c.Redis.ReadTimeoutSeconds <= 0 {
-		return fmt.Errorf("redis.readTimeoutSeconds must be positive, got %d", c.Redis.ReadTimeoutSeconds)
-	}
-	if c.Redis.WriteTimeoutSeconds <= 0 {
-		return fmt.Errorf("redis.writeTimeoutSeconds must be positive, got %d", c.Redis.WriteTimeoutSeconds)
-	}
-	if c.Redis.IdleTimeoutSeconds <= 0 {
-		return fmt.Errorf("redis.idleTimeoutSeconds must be positive, got %d", c.Redis.IdleTimeoutSeconds)
-	}
-	switch strings.ToLower(c.Log.Level) {
-	case "debug", "info", "warn", "error":
-	default:
-		return fmt.Errorf("log.level must be debug, info, warn, or error, got %q", c.Log.Level)
-	}
-	switch strings.ToLower(c.Log.Format) {
-	case "console", "json":
-	default:
-		return fmt.Errorf("log.format must be console or json, got %q", c.Log.Format)
-	}
-	if strings.TrimSpace(c.Log.RootDir) == "" {
-		return errors.New("log.rootDir is required")
-	}
-	if strings.TrimSpace(c.Log.Timezone) == "" {
-		return errors.New("log.timezone is required")
-	}
-	if _, err := time.LoadLocation(c.Log.Timezone); err != nil {
-		return fmt.Errorf("log.timezone is invalid: %w", err)
-	}
-	if c.Log.MaxSizeMB < 0 {
-		return fmt.Errorf("log.maxSizeMB must not be negative, got %d", c.Log.MaxSizeMB)
-	}
-	if c.Log.MaxAgeDays < 0 {
-		return fmt.Errorf("log.maxAgeDays must not be negative, got %d", c.Log.MaxAgeDays)
-	}
-	if !c.Log.DailyRotate && c.Log.MaxSizeMB == 0 && (c.Log.MaxAgeDays > 0 || c.Log.Compress) {
-		return errors.New("log.maxSizeMB must be positive when log.dailyRotate is false and retention or compression is enabled")
-	}
-	return nil
+	return "debug"
 }
 
 // Load applies defaults, reads the YAML file at path, then overlays any
 // matching environment variables.
 func Load(path string) (Config, error) {
-	v, err := newViper(path)
-	if err != nil {
-		return Config{}, err
-	}
-	return unmarshal(v)
-}
-
-func newViper(path string) (*viper.Viper, error) {
 	v := viper.New()
 	setDefaults(v)
 
@@ -239,12 +128,9 @@ func newViper(path string) (*viper.Viper, error) {
 	v.AutomaticEnv()
 
 	if err := v.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("read config %q: %w", path, err)
+		return Config{}, fmt.Errorf("read config %q: %w", path, err)
 	}
-	return v, nil
-}
 
-func unmarshal(v *viper.Viper) (Config, error) {
 	var c Config
 	if err := v.Unmarshal(&c); err != nil {
 		return Config{}, fmt.Errorf("unmarshal config: %w", err)
@@ -262,6 +148,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("auth.jwtSecret", "")
 	v.SetDefault("auth.accessExpireSeconds", 900)
+	v.SetDefault("auth.loginRatePerMinute", 20)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "console")
 	v.SetDefault("log.rootDir", "logs")

@@ -1,6 +1,6 @@
 # gin-scaffold 当前骨架模块梳理
 
-> 基线状态：当前工作区（已完成日志改造、MySQL + GORM、可选 Redis 客户端接入；登录限流已移除）
+> 基线状态：当前工作区（已完成日志改造、MySQL + GORM、可选 Redis 客户端接入；已接入单实例登录限流）
 >
 > 整理目标：按模块说明当前代码的职责、依赖边界、运行链路和审查重点。本文描述的是当前已实现状态，不把规划中的能力写成既有能力。
 
@@ -9,7 +9,7 @@
 - 项目是一个 Gin 服务骨架，启动时依赖可用的 MySQL；Redis 是可选依赖，连接失败只会记录 warning，不阻断启动。
 - 分层主线清晰：`handler -> business -> dao`，`middleware` 负责横切能力，`svc` 负责依赖装配，`common` 放可复用的通用公共能力。
 - 启动流程包含配置加载、配置校验、日志初始化、依赖装配、路由构建、HTTP 服务和优雅关闭。
-- 已有能力：JWT 登录与鉴权、统一响应、错误码、访问日志、请求 ID、panic 恢复、三模块日志、可配置的按天切割、日志压缩和保留清理、MySQL 连接池、可选 Redis 连接池、启动 ping 和关闭逻辑。
+- 已有能力：JWT 登录与鉴权、统一响应、错误码、访问日志、请求 ID、panic 恢复、三模块日志、可配置的按天切割、日志压缩和保留清理、MySQL 连接池、可选 Redis 连接池、启动 ping 和关闭逻辑、请求体/请求头限制、安全响应头、登录限流和 JWT issuer/audience 校验。
 - 当前仍是骨架而非完整生产实现：用户表需要手动迁移，JWT 仍是单机无状态校验，没有刷新、撤销和黑名单。
 - 日志已按 `app`、`gorm`、`access` 拆分，并通过 `request_id` 串联；业务内部日志统一写入 `app`，GORM 查询通过 `db.WithContext(ctx)` 写入 `gorm`，HTTP 请求和 Gin 输出写入 `access`。
 
@@ -26,16 +26,15 @@
 │   ├── handler/               HTTP 适配层
 │   ├── business/              业务编排和业务错误
 │   ├── dao/                   数据访问接口和 GORM 实现
-│   ├── cache/                 按业务域组织的缓存注册表，封装可选 Redis 客户端
+│   ├── cache/                 缓存接口和 Redis 实现，封装可选 Redis 客户端
 │   ├── errors/                应用错误类型、业务码和本业务域 sentinel error
 │   └── schema/                HTTP 请求/响应 DTO
 ├── common/                     公共包：跨服务共享的通用能力与表模型
 │   ├── logger/                分模块 zap 日志、按天/固定文件、GORM 适配、request_id context
-│   ├── middleware/            请求 ID、鉴权、访问日志、恢复等
+│   ├── middleware/            请求 ID、安全头、请求体限制、鉴权、访问日志、恢复、限流
 │   ├── model/                 存储侧模型
 │   ├── response.go            统一响应 envelope 与写响应逻辑
-│   ├── jwt.go                 JWT 签发和校验
-│   └── pagination.go          分页归一化
+│   └── jwt.go                 JWT 签发和校验
 ├── migrations/                MySQL 建表脚本
 └── docs/                      架构分析和本模块梳理
 ```
@@ -44,22 +43,21 @@
 |---|---|---|
 | 进程入口 | `main.go` | 解析环境/配置、初始化日志、装配依赖、启动和关闭 HTTP Server |
 | 配置 | `internal/config/config.go` | 配置结构、默认值、Viper 加载、启动前校验 |
-| 依赖装配 | `internal/svc/service_context.go` | 构造 JWT manager、DAO、Cache 等共享依赖 |
+| 依赖装配 | `internal/svc/service_context.go` | 构造 JWT manager、DAO/Cache Registry 等共享依赖 |
 | 路由 | `internal/router/router.go` | Gin 引擎、中间件顺序、公开/受保护路由、404/405 |
-| 中间件 | `common/middleware/*.go` | 请求 ID、访问日志、panic 恢复、JWT 鉴权 |
+| 中间件 | `common/middleware/*.go` | 请求 ID、安全响应头、请求体限制、访问日志、panic 恢复、JWT 鉴权、限流 |
 | 处理器 | `internal/handler/*.go` | 绑定 HTTP 输入、调用业务、输出统一响应 |
 | 业务 | `internal/business/*.go` | 登录编排、凭证校验、错误语义、业务日志 |
-| DAO | `internal/dao/**` | 统一注册 DAO，定义持久化接口并提供 MySQL/GORM 实现 |
-| 缓存 | `internal/cache/registry.go`、`internal/cache/user.go` | 按业务域定义 Cache interface 和 Redis 实现；Redis 生命周期由 `svc` 私有持有 |
+| DAO | `internal/dao/**` | 定义持久化接口并提供 MySQL/GORM 实现 |
+| 缓存 | `internal/cache/user.go` | 定义 Cache interface 和 Redis 实现；Redis 生命周期由 `svc` 私有持有 |
 | 错误定义 | `internal/errors/errors.go` | AppError、业务错误码、构造器、本业务域 sentinel error |
 | 存储模型 | `common/model/user.go` | 存储侧用户行结构 |
 | API DTO | `internal/schema/auth.go` | HTTP 请求和响应结构 |
-| 公共工具 | `common/*.go` | 统一响应、JWT、分页等可跨服务复用的通用能力 |
+| 公共工具 | `common/*.go` | 统一响应、JWT 等可跨服务复用的通用能力 |
 | 日志 | `common/logger/*.go` | 模块 logger、按日文件、request_id 注入、GORM 适配 |
 | 请求 ID | `common/logger/requestid.go` | 在 `context.Context` 中保存和读取请求 ID |
 | 统一响应 | `common/response.go` | 响应 envelope、错误映射为 HTTP 响应、错误日志 |
 | JWT | `common/jwt.go` | HS256 JWT 签发、解析、Bearer 提取 |
-| 分页 | `common/pagination.go` | page/size 和 id cursor 边界归一化 |
 
 ## 2. 依赖方向与分层规则
 
@@ -98,7 +96,7 @@ main
 2. `config.Load`：默认值 < YAML 文件 < 环境变量。
 3. `cfg.Validate`：校验配置中的 `server.env`、端口、JWT、日志等字段。
 4. `logger.Init`：按 `log.rootDir` 初始化 `app/gorm/access` 三个 logger。
-5. `svc.NewServiceContext`：建立 MySQL 连接并执行启动 ping；尝试建立 Redis 连接，失败时记录 warning 并继续；构造 JWT manager 和 GORM UserDAO。
+5. `svc.NewServiceContext`：建立 MySQL 连接并执行启动 ping；尝试建立 Redis 连接，失败时记录 warning 并继续；构造 JWT manager 和 DAO/Cache Registry。
 6. `router.New`：根据配置中的 `server.env` 映射 Gin 模式，设置固定不信任代理、全局中间件和路由。
 7. 构造 `http.Server`，只设置监听地址、Handler 和错误日志；请求超时使用 `net/http` 默认值。
 8. 监听 `SIGINT/SIGTERM`，在 goroutine 中启动 `ListenAndServe`。
@@ -135,21 +133,21 @@ CLI 只保留 `-f`，默认值为 `etc/config_dev.yaml`。环境由配置文件�
 
 | 分组 | 关键字段 | 用途 |
 |---|---|---|
-| `server` | env、host、port | `env` 取 dev/test/prod 并映射 Gin mode；host/port 为 HTTP 监听地址，请求超时使用 `net/http` 默认值 |
-| `auth` | jwtSecret、accessExpireSeconds | JWT 签发和有效期 |
+| `server` | env、host、port | `env` 取 dev/test/prod 并映射 Gin mode；host/port 为 HTTP 监听地址；HTTP 读头/读/写/空闲超时和最大请求头固定为安全默认值 |
+| `auth` | jwtSecret、accessExpireSeconds、loginRatePerMinute | JWT 签发、有效期和单实例每 IP 登录限流 |
 | `log` | rootDir、level、format、dailyRotate、timezone、maxSizeMB、maxAgeDays、compress | 日志根目录、级别、编码、按天开关、切日时区、大小分片、保留和压缩 |
 | `mysql` | 连接、库名、连接池、超时 | 建立 GORM 连接、启动 ping、连接池和优雅关闭 |
 | `redis` | 地址、密码、DB、连接池、超时 | 尝试建立 go-redis 客户端、启动 ping、连接池和优雅关闭；失败不阻断启动 |
 
 ### 启动校验
 
-`Config.Validate` 会检查：
+`Config.Validate` 由一组具名检查项组成（`internal/config/validate.go`），一次汇总所有错误。检查内容包括：
 
 - 环境名只能是 `dev`、`test`、`prod`。
 - 端口范围合法。
 - Gin mode 由 `server.env` 自动映射，不再单独配置；prod 固定映射为 `release`。
 - JWT secret 必填；prod 长度至少 32 字节。
-- access TTL 为正数。
+- access TTL 和 `loginRatePerMinute` 为正数；登录限流上限为 10000 次/分钟。
 - MySQL host/port/user/database/charset 必填且格式合法；prod 必须提供非空密码；连接池必须为正数或合法非负值，`maxIdleConns` 不能超过 `maxOpenConns`。
 - Redis host/port 必填；prod 必须提供非空密码；DB 不能为负数；连接池和各类超时必须为正数，`minIdleConns` 不能超过 `poolSize`。
 - 日志级别只能是 `debug/info/warn/error`，格式只能是 `console/json`；rootDir 和 timezone 不能为空，timezone 必须可加载；maxSizeMB 和 maxAgeDays 不能为负数；`dailyRotate=false` 且启用保留或压缩时，maxSizeMB 必须大于 `0`。
@@ -158,7 +156,7 @@ CLI 只保留 `-f`，默认值为 `etc/config_dev.yaml`。环境由配置文件�
 
 - dev/test 配置包含演示 secret；只能用于本地或测试，不能复用到真实环境。
 - MySQL 和 Redis 配置都已被 `svc` 消费；MySQL 连接失败会阻止进程启动，Redis 连接失败只记录 warning，并让 `ServiceContext.Cache` 处于不可用状态。
-- `MySQLConf.DSN` 固定 `parseTime=true&loc=Local`，并包含 5 秒拨号超时、30 秒读超时和 30 秒写超时；当前没有 TLS 参数，生产启用 TLS 时需要扩展 DSN。
+- `MySQLConf.DSN` 使用 `go-sql-driver/mysql` 的 `Config.FormatDSN()`，用户名/密码中的保留字符会被正确转义；固定 `parseTime=true`、本地时区、5 秒拨号超时和 30 秒读写超时。当前没有 TLS 参数，生产启用 TLS 时需要扩展配置。
 - `X-Forwarded-For` 固定不信任，`ClientIP` 始终使用直连地址；如果后续部署在反向代理后并需要真实客户端 IP，需要重新引入可信代理配置。
 
 ## 5. 依赖装配模块
@@ -169,10 +167,10 @@ CLI 只保留 `-f`，默认值为 `etc/config_dev.yaml`。环境由配置文件�
 
 ```go
 type ServiceContext struct {
-    Config       *config.Config
-    JWTManager   *common.JWTManager
-    DAO          *dao.Registry
-    Cache        *cache.Registry
+    Config     *config.Config
+    JWTManager *common.JWTManager
+    DAO        *dao.Registry
+    Cache      *cache.Registry
 }
 ```
 
@@ -182,8 +180,9 @@ type ServiceContext struct {
 - 要求 `auth.jwtSecret` 非空，属于入口校验前的防御性检查。
 - 调用 `openDatabase` 打开 MySQL：使用 GORM MySQL dialector，注入 `gorm` 模块 logger，设置连接池上限、生命周期和空闲时间，并在启动阶段 ping。
 - 调用 `openRedis` 尝试打开 Redis：设置密码、DB、连接池、拨号和读写超时，并在启动阶段 ping；失败时记录 warning、关闭临时客户端，并用不可用状态构造 `ServiceContext.Cache`，不会关闭 MySQL。
-- 构造 `dao.NewRegistry(db)`，所有 DAO 从这里统一获取。
-- 用 Redis 客户端构造 `cache.NewRegistry(redisClient)`；Registry 只聚合业务域 Cache interface，Redis 客户端由 `ServiceContext` 私有持有和关闭，业务不直接持有 `*redis.Client`。
+- 通过 `dao.NewRegistry(db)` 构造 DAO Registry，当前暴露 `User`，后续新增 DAO 时在这里扩展。
+- 通过 `cache.NewRegistry(redisClient)` 构造 Cache Registry，当前暴露 `User` 和可用状态；后续新增缓存时在这里扩展。
+- Registry 只在启动阶段组装一次，不增加请求级跳转；Redis 客户端由 `ServiceContext` 私有持有和关闭，业务不直接持有 `*redis.Client`。
 - `UserCache` 提供 `Get/Set/Delete`，缓存未命中返回 `internal/errors.ErrCacheMiss`，Redis 不可用返回 `internal/errors.ErrCacheUnavailable`；当前尚未接入业务调用。
 - 用配置构造 `common.JWTManager`。
 - 提供幂等的 `Close()`，关闭底层 `*sql.DB` 和 Redis 客户端。
@@ -191,7 +190,7 @@ type ServiceContext struct {
 ### 审查关注
 
 - 这里是继续接入外部客户端和更多 DAO 的最佳位置。
-- MySQL 连接失败会阻止进程启动；Redis 连接失败不会阻止启动，调用方在使用 `ServiceContext.Cache` 前需要通过 `Available()` 判断可用性。当前没有路由消费 Cache。
+- MySQL 连接失败会阻止进程启动；Redis 连接失败不会阻止启动，`UserCache` 方法会返回 `ErrCacheUnavailable`。当前没有路由消费 Cache。
 - 如果后续增加更多需要关闭的资源，应纳入 `ServiceContext.Close()`，并在 `main.go` 的 defer 中统一释放。
 
 ## 6. 路由模块
@@ -203,13 +202,15 @@ type ServiceContext struct {
 当前注册顺序：
 
 ```text
-RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
+RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中间件 -> handler
 ```
 
 顺序含义：
 
 - `RequestID` 最先执行，后续日志和响应都能拿到请求 ID。
+- `SecurityHeaders` 在响应写出前设置安全头。
 - `AccessLog` 包住后续链路，请求结束后记录最终状态和耗时。
+- `BodyLimit` 在 handler 解码前限制请求体大小。
 - `Recovery` 位于访问日志内部，panic 被转换成 500 后，访问日志仍能记录 500。
 
 ### 路由表
@@ -217,7 +218,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 | 方法 | 路径 | 中间件 | 说明 |
 |---|---|---|---|
 | `GET` | `/healthz` | 全局中间件 | 极简存活探针，刻意不走统一 envelope |
-| `POST` | `/api/v1/login` | 全局 + JWT（白名单跳过） | 用户名密码登录并签发 JWT |
+| `POST` | `/api/v1/login` | 全局 + JWT 鉴权放行 + 登录限流 | 用户名密码登录并签发 JWT（通过 `noAuthRoutes` 精确匹配放行） |
 | `GET` | `/api/v1/me` | 全局 + JWT 鉴权 | 返回 JWT claims 中的当前用户身份 |
 
 ### 异常路由
@@ -228,7 +229,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 ### 审查关注
 
 - `AccessLog` 必须在 `Recovery` 外层；如果顺序反过来，panic 恢复后的访问日志可能缺失最终状态。
-- `/api/v1` 下的路由默认经过 `middleware.Auth`；确需公开的接口加入 `internal/router/router.go` 的 `noAuthRoutes`，key 使用 `METHOD /full/route/pattern`（如 `POST /api/v1/login`）。
+- `/api/v1` 默认整组鉴权，`noAuthRoutes` 只放行精确匹配的 `METHOD /full/path`；这样公开接口仍可挂在同一个大分组下，不要求额外拆组。
 
 ## 7. 中间件模块
 
@@ -236,21 +237,25 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 
 | 中间件 | 文件 | 行为 | 失败输出 |
 |---|---|---|---|
-| `RequestID` | `requestid.go` | 读取 `X-Request-Id`，没有则生成 16 字节随机 hex；写入 Gin context、request context 和响应头 | 随机源失败时使用 `unknown` |
+| `RequestID` | `requestid.go` | 只接受长度 ≤64 且字符安全的 `X-Request-Id`，否则生成 16 字节随机 hex；写入 Gin context、request context 和响应头 | 随机源失败时退化为时间戳 ID |
+| `SecurityHeaders` | `security.go` | 设置 `nosniff`、frame denial、no-referrer、deny-all CSP 和 `Cache-Control: no-store` | 无 |
+| `BodyLimit` | `bodylimit.go` | 用 `http.MaxBytesReader` 把请求体限制为 1 MiB | 解码失败按 400 处理 |
 | `AccessLog` | `accesslog.go` | 请求结束后记录 method/path/status/latency/client_ip/user_id | 写 `access` 模块日志 |
 | `Recovery` | `recovery.go` | recover panic，记录 app error 并返回统一 500 | `50000` |
-| `Auth` | `auth.go` | 校验 `Authorization: Bearer <JWT>`，解析后把 claims 放入 Gin context；命中 `NoAuthRoutes` 时跳过校验 | `40100` |
+| `Auth` | `auth.go` | 校验 `Authorization: Bearer <JWT>`，解析后把 claims 放入 Gin context | `40100` |
+| `RateLimit` | `ratelimit.go` | 单实例固定窗口限流，按 `ClientIP` 计数；登录路由每分钟额度由 `auth.loginRatePerMinute` 控制 | `42900` + `Retry-After` |
 
 ### 关键行为
 
 - `AccessLog` 自动从 request context 获取 `request_id`；鉴权成功时补充 `user_id`。
-- `Auth` 只接受 HS256，并要求 secret 已配置。
-- `Auth` 的免鉴权白名单按 `METHOD + 完整路由模板` 精确匹配，避免只按路径放行导致其他方法被误放开。
+- `Auth` 只接受 HS256，并要求 secret 已配置；JWT 还必须匹配固定 issuer/audience、包含过期时间，并携带非空 `uid`/`username`。
+- 登录限流是进程内固定窗口，单实例有效；多实例部署需要网关或 Redis 共享限流。
 
 ### 审查关注
 
 - `ClientIP` 使用直连地址，部署在反向代理后需要重新评估真实 IP 获取方式。
-- 外部传入的 `X-Request-Id` 当前没有长度和字符白名单校验。若直接暴露公网，建议限制长度，或在不受信任场景强制生成服务端 ID。
+- `X-Request-Id` 已限制长度和字符集；非法值会被服务端 ID 替换，避免日志注入。
+- 在反向代理后，`ClientIP` 可能是代理地址，按 IP 的登录限流会退化为共享额度；需要配置可信代理或改用共享限流。
 - JWT 是无状态校验，没有 JWT 撤销、黑名单、刷新和登出语义。
 - `Recovery` 会先记录一次 `panic recovered`，随后 `common.Fail` 还会记录一次 5xx 的 `request failed`，同一 panic 可能产生两条 app error 日志。
 
@@ -264,13 +269,10 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 
 流程：
 
-1. `ShouldBindJSON` 绑定 `schema.LoginRequest`，必填字段由 binding tag 校验。
-2. 绑定失败返回 400。
-3. 构造 `business.NewAuthBusiness(c.Request.Context(), svcCtx)` 并调用 `Login`。
-4. 按错误类型映射：
-   - `internal/errors.ErrInvalidCredentials` -> 401，不暴露用户不存在或密码错误。
-   - context 取消/超时 -> 408。
-   - 其他错误 -> `common.Fail`，未知错误降级为统一 500。
+1. 要求 `Content-Type: application/json`。
+2. `ShouldBindJSON` 绑定 `schema.LoginRequest`，必填字段和最大长度由 binding tag 校验；绑定失败返回 400。
+3. 调用 handler 持有的 `AuthService.Login(c.Request.Context(), &req)`。
+4. 所有错误交给 `common.Fail`：业务已把凭证错误、context 取消等转换为 `AppError`，handler 不再维护错误类型 switch。
 
 ### 当前用户处理器
 
@@ -289,19 +291,19 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 
 ### 审查关注
 
-- 登录输入目前只有 `required`，没有用户名/密码长度、格式和最大长度约束。
-- handler 没有直接写业务错误文案，错误映射集中在 `common` 和少量 switch 中，边界清晰。
+- 登录输入已限制用户名 ≤64、密码 ≤72；请求体另有 1 MiB 全局上限。
+- handler 不再按错误类型分支，`AppError` 多态和 `common.Fail` 统一完成 HTTP 映射，边界更简单。
 - `/api/v1/me` 信任 JWT claims 中的身份；如果引入用户禁用、角色变更等实时状态，需要重新设计为查询会话或用户状态。
 
 ## 9. 业务模块
 
 目录：`internal/business/`
 
-### `AuthBusiness`
+### `AuthService.Login`
 
 文件：`internal/business/auth.go`
 
-构造方式：`NewAuthBusiness(ctx, svcCtx)`。业务对象持有本次请求的 `context.Context` 和共享依赖，符合当前项目约定的业务层模式。
+`AuthService` 在路由装配阶段创建一次，持有共享的 `ServiceContext`；请求只传入 context 和 DTO，数据库访问统一通过 `ServiceContext.DAO`，避免每新增依赖都修改构造函数。
 
 登录业务步骤：
 
@@ -314,7 +316,7 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 
 ### 错误语义
 
-`internal/errors.ErrInvalidCredentials` 同时表示“用户不存在”和“密码错误”，handler 统一映射为 401，避免客户端枚举账号。
+`internal/errors.ErrInvalidCredentials` 本身是 401 `AppError`，同时表示“用户不存在”和“密码错误”，所有传输层都映射为同一响应，避免客户端枚举账号。
 
 ### 业务日志
 
@@ -326,8 +328,8 @@ RequestID -> AccessLog -> Recovery -> 路由中间件 -> handler
 ### 审查关注
 
 - dummy bcrypt 只能均衡未知用户与已知用户密码错误的时间差，不能替代完整的安全审计。
-- 当前没有登录失败次数累计、账号锁定、验证码、刷新 JWT 和登出。
-- 业务层直接依赖 `svc.ServiceContext`；如果未来需要复用业务逻辑到非 HTTP 场景，可考虑缩小为更精确的依赖接口。
+- 当前只有按 IP 的进程内登录限流；没有按账号累计失败、账号锁定、验证码、刷新 JWT 和登出。
+- `AuthService` 直接使用共享 `ServiceContext`，减少构造参数拼接；代价是业务层与容器耦合，单测时需要提供对应依赖。数据库操作仍必须留在 DAO 层。
 
 ## 10. 数据访问与模型模块
 
@@ -343,14 +345,8 @@ type UserDAO interface {
 
 - 业务层只依赖接口。
 - `ErrUserNotFound` 是本业务域 sentinel error，定义在 `internal/errors`。
-- 数据库实现与接口同位于 `internal/dao/user.go`，由 `dao.Registry` 统一构造并通过 `svc` 注入。
-
-### DAO 注册表
-
-文件：`internal/dao/registry.go`
-
-- `dao.Registry` 聚合所有 DAO 接口，`ServiceContext` 只持有 `DAO *dao.Registry`。
-- 新增 model/DAO 时，只需新增对应 DAO 文件，并在 `Registry` 中增加字段、在 `NewRegistry` 中构造。
+- 数据库实现与接口同位于 `internal/dao/user.go`，由 `svc.NewServiceContext` 通过 `dao.NewRegistry(db)` 统一组装。
+- 新增 model/DAO 时，在 `internal/dao` 增加接口和实现，并在 `dao.Registry` 增加字段；业务通过 `ServiceContext.DAO` 使用即可。
 
 ### GORM 实现
 
@@ -478,6 +474,7 @@ type UserDAO interface {
 | `40400` | 资源不存在 |
 | `40500` | 方法不允许 |
 | `40800` | 超时/请求取消 |
+| `42900` | 请求过于频繁 |
 | `50000` | 内部错误 |
 
 错误处理规则：
@@ -493,19 +490,11 @@ type UserDAO interface {
 
 - 使用 HS256。
 - `AuthClaims` 包含 `uid`、`username` 和标准 RegisteredClaims。
-- `Issue` 返回 JWT 和过期时间；TTL 非正数时回退 15 分钟。
-- `ParseInto` 强制只接受 HS256，并使用 `WithValidMethods` 再限制一次。
+- `Issue` 写入固定 issuer/audience、subject、签发时间和过期时间；TTL 非正数时回退 15 分钟。
+- `Parse` 使用 `WithValidMethods` 只接受 HS256，并校验 issuer、audience、必需过期时间和 30 秒时钟偏差；解析后拒绝空 `uid`/`username`。
 - `ExtractBearer` 只接受 `Bearer <JWT>` 形式，大小写不敏感。
 
-当前没有 issuer、audience、not-before、刷新 JWT、撤销和密钥轮换。
-
-### 12.5 分页
-
-文件：`common/pagination.go`
-
-- 页码分页：默认第 1 页、每页 10 条、最大 100 条，提供 `Offset()` 和 `Limit()`。
-- Cursor 分页：按递增 id 的方向提供 `LastID`、归一化后的 limit 和 `HasCursor()`。
-- 当前路由尚未使用该模块，属于给后续列表接口预留的通用能力。
+当前没有 not-before、刷新 JWT、撤销、黑名单和密钥轮换。
 
 ## 13. 请求链路
 
@@ -514,11 +503,14 @@ type UserDAO interface {
 ```text
 POST /api/v1/login
   RequestID
+  -> SecurityHeaders
   -> AccessLog
+  -> BodyLimit
   -> Recovery
+  -> RateLimit（按 ClientIP）
   -> handler.Login
        -> ShouldBindJSON
-       -> business.AuthBusiness.Login
+       -> AuthService.Login
             -> UserDAO.FindByUsername
             -> bcrypt 校验
             -> JWTManager.Issue
@@ -533,10 +525,10 @@ POST /api/v1/login
 
 ```text
 GET /api/v1/me
-  RequestID -> AccessLog -> Recovery
+  RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery
   -> middleware.Auth
        -> ExtractBearer
-       -> JWTManager.ParseInto
+       -> JWTManager.Parse
        -> 写入 claims
   -> handler.Me
        -> 读取 claims
@@ -547,7 +539,7 @@ GET /api/v1/me
 ### 13.3 404 / 405
 
 ```text
-RequestID -> AccessLog -> Recovery -> NoRoute / NoMethod
+RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> NoRoute / NoMethod
   -> common.Fail
   -> AccessLog
 ```
@@ -579,9 +571,10 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 
 ### 安全
 
-- 登录只做必填校验，没有密码长度、用户名格式和频率限制等防爆破措施。
-- JWT 没有刷新、撤销、黑名单、issuer/audience 校验和密钥轮换。
-- `X-Request-Id` 未限制外部输入长度和字符。
+- 登录已限制用户名/密码长度并有单实例按 IP 限流；仍没有按账号累计失败、账号锁定、验证码和分布式限流。
+- JWT 已校验 issuer/audience/expiry 并拒绝空身份 claims；仍没有刷新、撤销、黑名单和密钥轮换。
+- `X-Request-Id` 已限制长度和字符；非法输入会被服务端 ID 替换。
+- 请求体和请求头已有上限，HTTP Server 已配置读头/读/写/空闲超时。
 - GORM 日志默认只保留 SQL 占位符、不记录参数；如显式开启参数记录，敏感字段需要脱敏。
 
 ### 可观测性
@@ -594,7 +587,6 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 
 - 没有测试文件，当前验证依赖 `go build`、`go vet`、运行期手工请求。
 - 没有 CI、代码生成、数据库迁移工具和容器化部署文件。
-- 分页模块尚未被任何路由使用。
 
 ## 16. 审查清单
 
@@ -604,7 +596,7 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 2. **配置是否符合部署方式**：环境变量名、prod secret、真实客户端 IP 策略、日志目录和超时。
 3. **分层依赖是否越界**：handler 是否只做适配，business 是否直接操作 HTTP，`common` 是否反向依赖 `internal/*`。
 4. **认证与错误语义是否安全**：账号枚举、JWT 校验、401 文案、未知错误是否泄露内部信息。
-5. **中间件顺序是否正确**：RequestID、AccessLog、Recovery 和鉴权的作用范围。
+5. **中间件顺序是否正确**：RequestID、SecurityHeaders、AccessLog、BodyLimit、Recovery、限流和鉴权的作用范围。
 6. **日志是否能串联请求**：请求 ID 是否贯穿 access、app、gorm，敏感信息是否被排除。
 7. **生产缺口是否明确**：迁移流程、Redis 高可用、JWT 生命周期、日志保留和监控。
 8. **扩展点是否清晰**：新增路由、业务、DAO、依赖和日志模块时是否只需改局部装配。
@@ -615,7 +607,7 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 
 1. 将迁移脚本接入部署流程，并建立开发/生产的种子用户管理方式。
 2. 验证 `request_id` 在 MySQL/GORM 查询日志中的贯穿，并补充数据库错误分类。
-3. 为登录输入增加长度和格式约束，并评估账号锁定/验证码策略。
+3. 评估账号锁定、验证码和分布式限流（Redis/网关）策略；当前限流是单实例按 IP。
 4. 增加 stdout/远程日志采集，并在部署环境验证保留、压缩和磁盘容量策略。
 5. 增加 metrics、trace、依赖健康检查和 readiness 路由。
 6. 补充核心路径测试；如项目要求“不保留测试文件”，则至少保留 CI 中的构建和静态检查。

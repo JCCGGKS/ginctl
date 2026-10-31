@@ -9,6 +9,7 @@ server:
 auth:
   jwtSecret: ""               # set via AUTH_JWTSECRET
   accessExpireSeconds: 900
+  loginRatePerMinute: 20
 
 log:
   rootDir: logs

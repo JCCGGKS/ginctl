@@ -1,8 +1,7 @@
 // Package common holds cross-cutting building blocks shared by the HTTP and
-// application layers: the unified response envelope, JWT handling, and
-// pagination helpers. Application and domain errors live in each service's
-// internal/errors package, and request-id context helpers live in
-// common/logger.
+// application layers: the unified response envelope and JWT handling.
+// Application and domain errors live in each service's internal/errors package,
+// and request-id context helpers live in common/logger.
 //
 // Contract:
 //   - every JSON endpoint returns the same shape: {code,msg,data,...}
@@ -67,6 +66,11 @@ func OK(c *gin.Context, data any) {
 // HTTPError keeps its status/code; anything else is logged and degraded to a
 // generic 500 so internal details are not leaked to the client.
 func Fail(c *gin.Context, err error) {
+	if c.Writer.Written() {
+		c.Abort()
+		return
+	}
+
 	var httpErr HTTPError
 	if !stderrors.As(err, &httpErr) {
 		fields := errorFields(c, http.StatusInternalServerError, fallbackCodeInternal)
@@ -113,20 +117,13 @@ func SetRequestID(c *gin.Context, id string) { c.Set(ctxRequestIDKey, id) }
 
 // RequestID reads the request id, or "" if unset.
 func RequestID(c *gin.Context) string {
-	if id := getString(c, ctxRequestIDKey); id != "" {
-		return id
+	if v, ok := c.Get(ctxRequestIDKey); ok {
+		if id, ok := v.(string); ok && id != "" {
+			return id
+		}
 	}
 	if c.Request == nil {
 		return ""
 	}
 	return logger.RequestIDFromContext(c.Request.Context())
-}
-
-func getString(c *gin.Context, key string) string {
-	if v, ok := c.Get(key); ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
 }

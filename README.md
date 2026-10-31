@@ -24,6 +24,8 @@ Pass `--no-git` to skip repository initialization.
 - Graceful startup/shutdown: signal-based shutdown with a bounded shutdown window.
 - Logging: per-module zap loggers, daily rotation, and `request_id` correlation.
 - JWT: login endpoint, Bearer auth middleware, and a protected `/api/v1/me`.
+- Auth hardening: bounded credentials/body, timing-equalized credential checks,
+  issuer/audience-bound JWTs, and an in-process login rate limit per client IP.
 - Unified response envelope + typed `AppError` with business error codes.
 - `X-Forwarded-For` is never trusted; `ClientIP` uses the direct socket address.
 - Interface-based data access: `internal/dao` contract + MySQL/GORM implementation.
@@ -37,21 +39,20 @@ main.go        entrypoint: load config -> init logger -> svc -> router -> serve
 etc/config_<env>.yaml     runtime config; env field selects the environment
 internal/
   config/                 config structs + Load() + defaults (viper: defaults<file<env)
-  svc/                    ServiceContext: dependency-injection container
+  svc/                    ServiceContext: dependency-injection container (DAO/cache registries)
   router/                 gin engine + global middleware + explicit routes
   handler/                health, auth login, me (thin HTTP adapters)
-  business/                  auth login (business orchestration)
-  dao/                    DAO registry + interfaces + GORM implementations
-  cache/                  domain-scoped cache interfaces and Redis implementations
+  business/                  startup-created auth service using the shared ServiceContext
+  dao/                    DAO interfaces + GORM implementations
+  cache/                  cache interfaces + Redis implementations
   errors/                 application errors, business codes, and domain sentinels
   schema/                 request/response DTOs
 common/                   public packages shared across services
   logger/                 per-module zap loggers + daily rotation + gorm adapter + request_id context
-  middleware/             requestid, accesslog, recovery, auth (JWT)
+  middleware/             requestid, security headers, body limit, accesslog, recovery, auth (JWT), rate limit
   model/                  storage-side structs (db tags)
   response.go             unified response envelope and writers
   jwt.go                  JWT issue/parse (HS256 + custom claims)
-  pagination.go           page/size + id cursor normalization
 docs/ARCHITECTURE.md      design rationale
 docs/MODULES.zh-CN.md     module-by-module review guide (Chinese)
 migrations/               SQL schema migrations
@@ -109,6 +110,10 @@ environment:
 
 `server.env` is validated at startup and also enables stricter production checks.
 
+`auth.loginRatePerMinute` bounds login requests per client IP on a single
+instance. Multi-instance deployments should still enforce a shared limit at the
+gateway or in Redis.
+
 ## MySQL & Redis config
 
 Each config file ships `mysql` and `redis` sections. Values follow
@@ -124,9 +129,10 @@ an unavailable `ServiceContext.Cache`; no route currently uses the cache, and
 the cache layer remains available for future shared state such as sessions or
 counters.
 
-`config.MySQLConf.DSN()` uses `parseTime=true`, local timezone interpretation,
-a 5s dial timeout, and 30s read/write timeouts. `config.RedisConf.Addr()` is
-used by the shared Redis client.
+`config.MySQLConf.DSN()` is formatted by `go-sql-driver/mysql`, so credentials
+with reserved characters are escaped correctly. It uses `parseTime=true`, local
+timezone interpretation, a 5s dial timeout, and 30s read/write timeouts.
+`config.RedisConf.Addr()` is used by the shared Redis client.
 
 ## Logging
 
@@ -224,6 +230,9 @@ curl -s http://127.0.0.1:8080/api/v1/me \
   -H "Authorization: Bearer <access_token>"
 ```
 
+Tokens issued before the issuer/audience hardening are intentionally rejected;
+obtain a new token after deploying this change.
+
 The `users` table is defined in `migrations/001_create_users.sql`; the service
 does not run `AutoMigrate`. The `jwtSecret` is empty in prod and must be
 supplied via `AUTH_JWTSECRET`; the server refuses to start without it. In prod,
@@ -234,6 +243,18 @@ via `MYSQL_PASSWORD` and `REDIS_PASSWORD`.
 
 - `X-Forwarded-For` is never trusted; `ClientIP` always uses the direct socket
   address.
+- HTTP server timeouts and a 64 KiB header limit bound slow-client and oversized
+  header attacks.
+- Request bodies are capped at 1 MiB; login credentials are length-bounded and
+  decoded only from `application/json` into the expected DTO.
+- Incoming `X-Request-Id` values are accepted only when short and log-safe;
+  otherwise the server generates a new id.
+- JWTs are HS256-only, require an expiry, and validate a fixed issuer and
+  audience. Missing or malformed identity claims are rejected.
+- Login failures use one public 401 response with a dummy bcrypt comparison for
+  unknown users, reducing account enumeration by response and timing.
+- API responses set `nosniff`, frame denial, no-referrer, a deny-all CSP, and
+  `Cache-Control: no-store`.
 - 404 and 405 responses use the same JSON envelope and business-code namespace
   as other endpoints.
 
@@ -242,6 +263,6 @@ via `MYSQL_PASSWORD` and `REDIS_PASSWORD`.
 Every business JSON endpoint returns `{code,msg,data,request_id,timestamp}`.
 `code=0` means success; business codes are independent of HTTP status (e.g.
 `40100` for unauthorized, `40400` for not found, and `50000` for internal
-errors). `GET
+errors; `42900` marks rate limiting). `GET
 /healthz` is the deliberate exception: it returns a minimal `{status,time}` body
 for infrastructure probes.

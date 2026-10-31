@@ -18,7 +18,9 @@ func Recovery(internal ErrorBuilder) gin.HandlerFunc {
 					zap.Any("error", r),
 					zap.String("path", c.Request.URL.Path),
 				)
-				common.Fail(c, internal("internal server error"))
+				if !c.Writer.Written() {
+					common.Fail(c, internal("internal server error"))
+				}
 				c.Abort()
 			}
 		}()

@@ -4,7 +4,7 @@
 # 环境变量名没有前缀，配置路径中的点会替换为下划线，例如 server.port -> SERVER_PORT。
 # prod 额外要求：env 必须为 prod，auth.jwtSecret 至少 32 字节，mysql.password 和 redis.password 不能为空。
 #
-# 固定参数：HTTP 请求超时使用 net/http 默认值，优雅关闭等待 10s。
+# 固定参数：HTTP 读头 5s、读 15s、写 30s、空闲 60s，最大请求头 64 KiB，优雅关闭等待 10s。
 
 server:
   env: "dev"                         # 运行环境：dev|test|prod；决定 Gin mode（dev=debug、test=test、prod=release）
@@ -14,6 +14,7 @@ server:
 auth:
   jwtSecret: "change-me-before-deploying-32bytes"  # HS256 签名密钥，必填；prod 至少 32 字节，建议通过 AUTH_JWTSECRET 注入
   accessExpireSeconds: 900           # access token 有效期，单位秒；当前默认 900 秒（15 分钟）
+  loginRatePerMinute: 20             # 单实例内每个客户端 IP 每分钟允许的登录请求数；多实例部署仍需网关限流
 
 log:
   rootDir: "logs"                    # 日志根目录；相对路径基于进程工作目录。按天切割时为 <rootDir>/<YYYY-MM>/<YYYY-MM-DD>_<module>.log

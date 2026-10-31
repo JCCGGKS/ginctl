@@ -4,8 +4,8 @@ package schema
 
 // LoginRequest is the login payload. binding tags drive gin's validation.
 type LoginRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Username string `json:"username" binding:"required,max=64"`
+	Password string `json:"password" binding:"required,max=72"`
 }
 
 // LoginResponse is the login response payload.

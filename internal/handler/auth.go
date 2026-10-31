@@ -3,46 +3,40 @@
 package handler
 
 import (
-	"context"
-	"errors"
-
 	"github.com/gin-gonic/gin"
 
 	"gin-scaffold/common"
 	"gin-scaffold/internal/business"
 	apperrors "gin-scaffold/internal/errors"
 	"gin-scaffold/internal/schema"
-	"gin-scaffold/internal/svc"
 )
 
-// AuthHandler holds shared dependencies for auth endpoints.
+// AuthHandler adapts authentication use cases to HTTP.
 type AuthHandler struct {
-	svcCtx *svc.ServiceContext
+	auth *business.AuthService
 }
 
 // NewAuthHandler builds an auth handler set.
-func NewAuthHandler(svcCtx *svc.ServiceContext) *AuthHandler {
-	return &AuthHandler{svcCtx: svcCtx}
+func NewAuthHandler(auth *business.AuthService) *AuthHandler {
+	return &AuthHandler{auth: auth}
 }
 
 // Login follows the standard flow: bind -> business -> unified response.
 func (h *AuthHandler) Login(c *gin.Context) {
+	if c.ContentType() != "application/json" {
+		common.Fail(c, apperrors.BadRequest("content type must be application/json"))
+		return
+	}
+
 	var req schema.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.Fail(c, apperrors.BadRequest("invalid request body"))
 		return
 	}
 
-	resp, err := business.NewAuthBusiness(c.Request.Context(), h.svcCtx).Login(&req)
+	resp, err := h.auth.Login(c.Request.Context(), &req)
 	if err != nil {
-		switch {
-		case errors.Is(err, apperrors.ErrInvalidCredentials):
-			common.Fail(c, apperrors.Unauthorized("username or password is invalid"))
-		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-			common.Fail(c, apperrors.Timeout("request cancelled"))
-		default:
-			common.Fail(c, err)
-		}
+		common.Fail(c, err)
 		return
 	}
 

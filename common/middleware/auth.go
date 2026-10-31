@@ -16,11 +16,12 @@ const ctxClaimsKey = "auth_claims"
 type ErrorBuilder func(string) error
 
 // NoAuthRoutes lists routes that bypass JWT auth even when mounted on an
-// authenticated group. Keys use the "METHOD /full/route/pattern" form, for
-// example "POST /api/v1/login".
+// authenticated group. Keys use the exact "METHOD /full/route/pattern" form.
+// Keep this map next to route registration so it is reviewed with the routes.
 type NoAuthRoutes map[string]struct{}
 
-// Skip reports whether the current request matches a no-auth route.
+// Skip reports whether the current request matches a no-auth route. Matching is
+// exact and fails closed when the route template is unknown.
 func (r NoAuthRoutes) Skip(c *gin.Context) bool {
 	route := c.FullPath()
 	if route == "" {
@@ -42,14 +43,12 @@ func Auth(tm *common.JWTManager, unauthorized ErrorBuilder, noAuth NoAuthRoutes)
 		raw := common.ExtractBearer(c.GetHeader("Authorization"))
 		if raw == "" {
 			common.Fail(c, unauthorized("authorization JWT is required"))
-			c.Abort()
 			return
 		}
 
-		claims := &common.AuthClaims{}
-		if err := tm.ParseInto(raw, claims); err != nil {
+		claims, err := tm.Parse(raw)
+		if err != nil {
 			common.Fail(c, unauthorized("authorization JWT is invalid"))
-			c.Abort()
 			return
 		}
 

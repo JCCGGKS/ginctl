@@ -8,7 +8,13 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Claims is the JWT payload. Extend with roles/tenant/scope as needed.
+const (
+	jwtIssuer   = "gin-scaffold"
+	jwtAudience = "gin-scaffold/api"
+	jwtLeeway   = 30 * time.Second
+)
+
+// AuthClaims is the JWT payload. Extend with roles/tenant/scope as needed.
 type AuthClaims struct {
 	UserID   uint64 `json:"uid"`
 	Username string `json:"username"`
@@ -35,13 +41,16 @@ func (m *JWTManager) Issue(userID uint64, username string) (string, time.Time, e
 		return "", time.Time{}, errors.New("jwt secret is not configured")
 	}
 
-	expiresAt := time.Now().Add(m.accessTTL)
+	now := time.Now()
+	expiresAt := now.Add(m.accessTTL)
 	claims := AuthClaims{
 		UserID:   userID,
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    jwtIssuer,
 			Subject:   username,
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Audience:  jwt.ClaimStrings{jwtAudience},
+			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 		},
 	}
@@ -53,39 +62,43 @@ func (m *JWTManager) Issue(userID uint64, username string) (string, time.Time, e
 	return signed, expiresAt, nil
 }
 
-// ParseInto validates a JWT string and decodes it into the provided claims.
-func (m *JWTManager) ParseInto(jwtString string, claims jwt.Claims) error {
+// Parse validates a JWT string and returns its typed claims.
+func (m *JWTManager) Parse(jwtString string) (*AuthClaims, error) {
 	if len(m.secret) == 0 {
-		return errors.New("jwt secret is not configured")
+		return nil, errors.New("jwt secret is not configured")
 	}
 
+	claims := &AuthClaims{}
 	parsed, err := jwt.ParseWithClaims(
 		jwtString,
 		claims,
-		func(t *jwt.Token) (any, error) {
-			if t.Method != jwt.SigningMethodHS256 {
-				return nil, errors.New("unexpected signing method")
-			}
+		func(_ *jwt.Token) (any, error) {
 			return m.secret, nil
 		},
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithIssuer(jwtIssuer),
+		jwt.WithAudience(jwtAudience),
+		jwt.WithExpirationRequired(),
+		jwt.WithLeeway(jwtLeeway),
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !parsed.Valid {
-		return errors.New("jwt is invalid")
+		return nil, errors.New("jwt is invalid")
 	}
-	return nil
+	if claims.UserID == 0 || strings.TrimSpace(claims.Username) == "" {
+		return nil, errors.New("jwt claims are incomplete")
+	}
+	return claims, nil
 }
 
 // ExtractBearer returns the bearer JWT from an Authorization header.
 // It returns "" when the header is not in the expected "Bearer <jwt>" form.
 func ExtractBearer(header string) string {
-	header = strings.TrimSpace(header)
-	parts := strings.SplitN(header, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+	scheme, token, ok := strings.Cut(strings.TrimSpace(header), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
 		return ""
 	}
-	return strings.TrimSpace(parts[1])
+	return strings.TrimSpace(token)
 }

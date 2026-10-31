@@ -15,6 +15,7 @@ const (
 	CodeNotFound         = 40400
 	CodeMethodNotAllowed = 40500
 	CodeTimeout          = 40800
+	CodeTooManyRequests  = 42900
 	CodeInternal         = 50000
 )
 
@@ -62,6 +63,10 @@ func Timeout(msg string) error {
 	return NewAppError(http.StatusRequestTimeout, CodeTimeout, msg)
 }
 
+func TooManyRequests(msg string) error {
+	return NewAppError(http.StatusTooManyRequests, CodeTooManyRequests, msg)
+}
+
 func Internal(msg string) error {
 	return NewAppError(http.StatusInternalServerError, CodeInternal, msg)
 }
@@ -71,9 +76,9 @@ var (
 	ErrUserNotFound = stderrors.New("user not found")
 
 	// ErrInvalidCredentials is returned for both unknown users and wrong
-	// passwords. Handlers map it to a single public 401 response so callers
-	// cannot distinguish account existence.
-	ErrInvalidCredentials = stderrors.New("invalid credentials")
+	// passwords. It is already a public AppError, so every transport maps it to
+	// the same 401 response and callers cannot distinguish account existence.
+	ErrInvalidCredentials = NewAppError(http.StatusUnauthorized, CodeUnauthorized, "username or password is invalid")
 
 	// ErrCacheMiss reports that the requested cache key is not present.
 	ErrCacheMiss = stderrors.New("cache miss")

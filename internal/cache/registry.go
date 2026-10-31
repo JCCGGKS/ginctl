@@ -1,10 +1,9 @@
-// Package cache groups domain-scoped cache dependencies.
 package cache
 
 import "github.com/redis/go-redis/v9"
 
-// Registry is the single entry point for all domain caches. Add one field here
-// for each new business domain that needs cache semantics.
+// Registry is the single entry point for domain caches. Keeping the aggregate
+// lets future domains grow without changing the shape of ServiceContext.
 type Registry struct {
 	User UserCache
 
@@ -15,7 +14,7 @@ type Registry struct {
 // client is allowed so Redis remains optional during startup.
 func NewRegistry(client *redis.Client) *Registry {
 	return &Registry{
-		User:      newRedisUserCache(client),
+		User:      NewUserCache(client),
 		available: client != nil,
 	}
 }
