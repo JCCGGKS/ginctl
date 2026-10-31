@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	jwtIssuer   = "gin-scaffold"
-	jwtAudience = "gin-scaffold/api"
-	jwtLeeway   = 30 * time.Second
+	jwtIssuer   = "gin-scaffold"     // 签发方标识，解析时必须与 Token 中的 iss 一致
+	jwtAudience = "gin-scaffold/api" // 接收方标识，解析时必须与 Token 中的 aud 一致
+	jwtLeeway   = 30 * time.Second   // 允许的时钟偏差，避免多实例时间不同步导致误判
 )
 
 // AuthClaims is the JWT payload. Extend with roles/tenant/scope as needed.
@@ -47,11 +47,11 @@ func (m *JWTManager) Issue(userID uint64, username string) (string, time.Time, e
 		UserID:   userID,
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    jwtIssuer,
-			Subject:   username,
-			Audience:  jwt.ClaimStrings{jwtAudience},
-			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			Issuer:    jwtIssuer,                     // 签发方：该 Token 由谁签发
+			Subject:   username,                      // 主体：该 Token 所属用户
+			Audience:  jwt.ClaimStrings{jwtAudience}, // 接收方：该 Token 允许被谁使用
+			IssuedAt:  jwt.NewNumericDate(now),       // 签发时间：Token 开始生效的时间
+			ExpiresAt: jwt.NewNumericDate(expiresAt), // 过期时间：超过该时间后拒绝该 Token
 		},
 	}
 
@@ -75,11 +75,11 @@ func (m *JWTManager) Parse(jwtString string) (*AuthClaims, error) {
 		func(_ *jwt.Token) (any, error) {
 			return m.secret, nil
 		},
-		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
-		jwt.WithIssuer(jwtIssuer),
-		jwt.WithAudience(jwtAudience),
-		jwt.WithExpirationRequired(),
-		jwt.WithLeeway(jwtLeeway),
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), // 只接受 HS256，防止签名算法混淆
+		jwt.WithIssuer(jwtIssuer),                                    // 校验签发方
+		jwt.WithAudience(jwtAudience),                                // 校验接收方
+		jwt.WithExpirationRequired(),                                 // 必须包含过期时间
+		jwt.WithLeeway(jwtLeeway),                                    // 容忍有限的时钟偏差
 	)
 	if err != nil {
 		return nil, err
