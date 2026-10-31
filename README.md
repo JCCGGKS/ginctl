@@ -15,8 +15,9 @@ Initialize a fresh project directory from this scaffold:
 
 Arguments are `<target-dir> [module-path] [service-name] [db-name]`; missing
 values are derived from the target directory name. The script copies tracked
-files only, rewrites the Go module/import paths, service name, binary name, and
-database names, initializes a Git repository, and runs `go build ./...`.
+files plus untracked, non-ignored files, rewrites the Go module/import paths,
+service name, binary name, and database names, initializes a Git repository,
+and runs `go build ./...`.
 Pass `--no-git` to skip repository initialization.
 
 ## What it includes

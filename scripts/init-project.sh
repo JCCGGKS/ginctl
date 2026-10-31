@@ -10,8 +10,8 @@
 #   service-name  basename of module-path
 #   db-name       service-name with '.' and '-' replaced by '_', lowercased
 #
-# The script copies tracked files only, rewrites Go import paths and project
-# names, then optionally initializes a fresh Git repository.
+# The script copies tracked and untracked non-ignored files, rewrites Go import
+# paths and project names, then optionally initializes a fresh Git repository.
 
 set -euo pipefail
 
@@ -42,9 +42,9 @@ Options:
   --no-git   Do not initialize a Git repository in the target directory.
   -h,--help  Show this help.
 
-The target directory must not exist or must be empty. Only tracked files are
-copied; generated binaries, runtime logs, and local config overrides are
-excluded by the scaffold's .gitignore rules.
+The target directory must not exist or must be empty. Tracked files and
+untracked, non-ignored files are copied; generated binaries, runtime logs, and
+local config overrides are excluded by the scaffold's .gitignore rules.
 EOF
 }
 
@@ -102,8 +102,8 @@ fi
 [[ "$SERVICE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid service name: $SERVICE_NAME"
 [[ "$DB_NAME" =~ ^[A-Za-z0-9_]+$ ]] || die "invalid database name: $DB_NAME"
 
-if [[ -n "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=no)" ]]; then
-  log_warn "working tree has uncommitted tracked changes; their current contents will be copied"
+if [[ -n "$(git -C "$ROOT_DIR" status --porcelain)" ]]; then
+  log_warn "working tree has uncommitted or untracked changes; their current contents will be copied"
 fi
 
 log_info "creating $TARGET"
@@ -111,9 +111,10 @@ mkdir -p "$TARGET"
 
 while IFS= read -r -d '' rel; do
   [[ "$rel" == "$GENERATOR_REL" ]] && continue
+  [[ -f "$ROOT_DIR/$rel" ]] || continue
   mkdir -p "$TARGET/$(dirname "$rel")"
   cp -p "$ROOT_DIR/$rel" "$TARGET/$rel"
-done < <(git -C "$ROOT_DIR" ls-files -z --cached)
+done < <(git -C "$ROOT_DIR" ls-files -z --cached --others --exclude-standard)
 
 [[ -f "$TARGET/go.mod" ]] || die "copy failed: go.mod is missing"
 
