@@ -2,6 +2,7 @@ package common
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -9,49 +10,79 @@ import (
 )
 
 const (
-	jwtIssuer   = "gin-scaffold"     // 签发方标识，解析时必须与 Token 中的 iss 一致
-	jwtAudience = "gin-scaffold/api" // 接收方标识，解析时必须与 Token 中的 aud 一致
-	jwtLeeway   = 30 * time.Second   // 允许的时钟偏差，避免多实例时间不同步导致误判
+	jwtIssuer         = "gin-scaffold"     // 签发方标识，解析时必须与 Token 中的 iss 一致
+	jwtAudience       = "gin-scaffold/api" // 接收方标识，解析时必须与 Token 中的 aud 一致
+	jwtLeeway         = 30 * time.Second   // 允许的时钟偏差，避免多实例时间不同步导致误判
+	defaultAccessTTL  = 15 * time.Minute
+	defaultRefreshTTL = 7 * 24 * time.Hour
+
+	TokenUseAccess  = "access"
+	TokenUseRefresh = "refresh"
 )
 
 // AuthClaims is the JWT payload. Extend with roles/tenant/scope as needed.
 type AuthClaims struct {
-	UserID   uint64 `json:"uid"`
-	Username string `json:"username"`
+	UserID   uint64 `json:"uid"`       // 用户 ID，必须与 sub 保持一致
+	Username string `json:"username"`  // 用户名，仅用于展示，鉴权以 UserID 为准
+	TokenUse string `json:"token_use"` // Token 用途：access（访问）或 refresh（刷新）
 	jwt.RegisteredClaims
 }
 
 // JWTManager signs and parses JWTs with a single HS256 secret.
 type JWTManager struct {
-	secret    []byte
-	accessTTL time.Duration
+	secret     []byte
+	accessTTL  time.Duration
+	refreshTTL time.Duration
 }
 
-// NewJWTManager builds a JWT manager. A non-positive TTL falls back to 15m.
-func NewJWTManager(secret string, accessTTL time.Duration) *JWTManager {
+// NewJWTManager builds a JWT manager. Non-positive TTLs fall back to defaults.
+func NewJWTManager(secret string, accessTTL, refreshTTL time.Duration) *JWTManager {
 	if accessTTL <= 0 {
-		accessTTL = 15 * time.Minute
+		accessTTL = defaultAccessTTL
 	}
-	return &JWTManager{secret: []byte(secret), accessTTL: accessTTL}
+	if refreshTTL <= 0 {
+		refreshTTL = defaultRefreshTTL
+	}
+	return &JWTManager{
+		secret:     []byte(secret),
+		accessTTL:  accessTTL,
+		refreshTTL: refreshTTL,
+	}
 }
 
 // Issue creates a signed access token and returns it with its expiry.
 func (m *JWTManager) Issue(userID uint64, username string) (string, time.Time, error) {
+	return m.issue(userID, username, TokenUseAccess, m.accessTTL)
+}
+
+// IssueRefresh creates a signed refresh token and returns it with its expiry.
+func (m *JWTManager) IssueRefresh(userID uint64, username string) (string, time.Time, error) {
+	return m.issue(userID, username, TokenUseRefresh, m.refreshTTL)
+}
+
+func (m *JWTManager) issue(userID uint64, username, tokenUse string, ttl time.Duration) (string, time.Time, error) {
 	if len(m.secret) == 0 {
 		return "", time.Time{}, errors.New("jwt secret is not configured")
 	}
+	if userID == 0 {
+		return "", time.Time{}, errors.New("user id is required")
+	}
+	if strings.TrimSpace(username) == "" {
+		return "", time.Time{}, errors.New("username is required")
+	}
 
 	now := time.Now()
-	expiresAt := now.Add(m.accessTTL)
+	expiresAt := now.Add(ttl)
 	claims := AuthClaims{
 		UserID:   userID,
 		Username: username,
+		TokenUse: tokenUse,
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    jwtIssuer,                     // 签发方：该 Token 由谁签发
-			Subject:   username,                      // 主体：该 Token 所属用户
-			Audience:  jwt.ClaimStrings{jwtAudience}, // 接收方：该 Token 允许被谁使用
-			IssuedAt:  jwt.NewNumericDate(now),       // 签发时间：Token 开始生效的时间
-			ExpiresAt: jwt.NewNumericDate(expiresAt), // 过期时间：超过该时间后拒绝该 Token
+			Issuer:    jwtIssuer,                      // 签发方：该 Token 由谁签发
+			Subject:   strconv.FormatUint(userID, 10), // 主体：稳定的用户 ID
+			Audience:  jwt.ClaimStrings{jwtAudience},  // 接收方：该 Token 允许被谁使用
+			IssuedAt:  jwt.NewNumericDate(now),        // 签发时间：Token 开始生效的时间
+			ExpiresAt: jwt.NewNumericDate(expiresAt),  // 过期时间：超过该时间后拒绝该 Token
 		},
 	}
 
@@ -64,6 +95,15 @@ func (m *JWTManager) Issue(userID uint64, username string) (string, time.Time, e
 
 // Parse validates a JWT string and returns its typed claims.
 func (m *JWTManager) Parse(jwtString string) (*AuthClaims, error) {
+	return m.parse(jwtString, TokenUseAccess)
+}
+
+// ParseRefresh validates a refresh JWT and rejects access tokens.
+func (m *JWTManager) ParseRefresh(jwtString string) (*AuthClaims, error) {
+	return m.parse(jwtString, TokenUseRefresh)
+}
+
+func (m *JWTManager) parse(jwtString, expectedUse string) (*AuthClaims, error) {
 	if len(m.secret) == 0 {
 		return nil, errors.New("jwt secret is not configured")
 	}
@@ -89,6 +129,12 @@ func (m *JWTManager) Parse(jwtString string) (*AuthClaims, error) {
 	}
 	if claims.UserID == 0 || strings.TrimSpace(claims.Username) == "" {
 		return nil, errors.New("jwt claims are incomplete")
+	}
+	if claims.Subject != strconv.FormatUint(claims.UserID, 10) {
+		return nil, errors.New("jwt subject does not match user id")
+	}
+	if claims.TokenUse != expectedUse {
+		return nil, errors.New("jwt token use is invalid")
 	}
 	return claims, nil
 }

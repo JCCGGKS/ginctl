@@ -24,9 +24,10 @@ Pass `--no-git` to skip repository initialization.
 
 - Graceful startup/shutdown: signal-based shutdown with a bounded shutdown window.
 - Logging: per-module zap loggers, daily rotation, and `request_id` correlation.
-- JWT: login endpoint, Bearer auth middleware, and a protected `/api/v1/me`.
+- JWT: login + refresh endpoints, Bearer auth middleware, and a protected `/api/v1/me`.
 - Auth hardening: bounded credentials/body, timing-equalized credential checks,
-  issuer/audience-bound JWTs, and an in-process login rate limit per client IP.
+  issuer/audience-bound JWTs with access/refresh separation, and an in-process
+  login/refresh rate limit per client IP.
 - Unified response envelope + typed `AppError` with business error codes.
 - `X-Forwarded-For` is never trusted; `ClientIP` uses the direct socket address.
 - Interface-based data access: `internal/dao` contract + MySQL/GORM implementation.
@@ -42,7 +43,7 @@ internal/
   config/                 config structs + Load() + defaults (viper: defaults<file<env)
   svc/                    ServiceContext: dependency-injection container (DAO/cache registries)
   router/                 gin engine + global middleware + explicit routes
-  handler/                health, auth login, me (thin HTTP adapters)
+  handler/                health, auth login/refresh, me (thin HTTP adapters)
   business/                  startup-created auth service using the shared ServiceContext
   dao/                    DAO interfaces + GORM implementations
   cache/                  cache interfaces + Redis implementations
@@ -111,9 +112,10 @@ environment:
 
 `server.env` is validated at startup and also enables stricter production checks.
 
-`auth.loginRatePerMinute` bounds login requests per client IP on a single
-instance. Multi-instance deployments should still enforce a shared limit at the
-gateway or in Redis.
+`auth.accessExpireSeconds` and `auth.refreshExpireSeconds` control token
+lifetimes (defaults: 15 minutes and 7 days). `auth.loginRatePerMinute` bounds
+login and refresh requests per client IP on a single instance. Multi-instance
+deployments should still enforce a shared limit at the gateway or in Redis.
 
 ## MySQL & Redis config
 
@@ -229,10 +231,22 @@ curl -s http://127.0.0.1:8080/api/v1/login \
 
 curl -s http://127.0.0.1:8080/api/v1/me \
   -H "Authorization: Bearer <access_token>"
+
+curl -s http://127.0.0.1:8080/api/v1/auth/refresh \
+  -H 'Content-Type: application/json' \
+  -d '{"refresh_token":"<refresh_token>"}'
 ```
 
-Tokens issued before the issuer/audience hardening are intentionally rejected;
-obtain a new token after deploying this change.
+Login returns both `access_token` and `refresh_token`. The refresh endpoint is
+public only in the sense that it does not require an Access Token; it still
+requires a valid Refresh Token and returns a new Access Token. Tokens issued
+before the issuer/audience/`token_use` hardening are intentionally rejected;
+obtain a new token pair after deploying this change.
+
+This is the minimal refresh implementation: Refresh Tokens are stateless JWTs,
+are not rotated or stored, and cannot be revoked before they expire. Add a
+server-side session/token-version store before relying on immediate logout,
+password-change invalidation, or per-device revocation.
 
 The `users` table is defined in `migrations/001_create_users.sql`; the service
 does not run `AutoMigrate`. The `jwtSecret` is empty in prod and must be
@@ -250,8 +264,10 @@ via `MYSQL_PASSWORD` and `REDIS_PASSWORD`.
   decoded only from `application/json` into the expected DTO.
 - Incoming `X-Request-Id` values are accepted only when short and log-safe;
   otherwise the server generates a new id.
-- JWTs are HS256-only, require an expiry, and validate a fixed issuer and
-  audience. Missing or malformed identity claims are rejected.
+- JWTs are HS256-only, require an expiry, and validate a fixed issuer,
+  audience, and `token_use`. Access Tokens cannot call the refresh endpoint,
+  Refresh Tokens cannot access protected APIs, and malformed identity claims
+  are rejected.
 - Login failures use one public 401 response with a dummy bcrypt comparison for
   unknown users, reducing account enumeration by response and timing.
 - API responses set `nosniff`, frame denial, no-referrer, a deny-all CSP, and

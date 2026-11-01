@@ -74,13 +74,24 @@ RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> handler.He
   -> 200 {status:"ok"}
 ```
 
-Login and protected read (`POST /api/v1/login`, `GET /api/v1/me`):
+Login, refresh, and protected read (`POST /api/v1/login`,
+`POST /api/v1/auth/refresh`, `GET /api/v1/me`):
 
 ```
 POST /api/v1/login:
   RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery
   -> rate limit (per client IP) -> handler.Login.bind
-    -> AuthService.Login (dao lookup + timing-equalized bcrypt compare) -> JWTManager.Issue
+    -> AuthService.Login (dao lookup + timing-equalized bcrypt compare)
+    -> JWTManager.Issue + JWTManager.IssueRefresh
+    -> common.OK {access_token, refresh_token, user}
+
+POST /api/v1/auth/refresh:
+  RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery
+  -> rate limit (per client IP; route bypasses Access Token auth)
+    -> handler.Refresh.bind -> AuthService.Refresh
+       -> JWTManager.ParseRefresh (requires token_use=refresh)
+       -> UserDAO.FindByID
+       -> JWTManager.Issue
     -> common.OK {access_token, user}
 
 GET /api/v1/me:
@@ -99,6 +110,7 @@ Unknown route / wrong method:
 - **M0 (done):** runnable skeleton: health, bcrypt login, JWT middleware, zap, config validation, unified 404/405.
 - **M1 (done):** real MySQL DAO, user table migration, startup ping, pool limits, and shutdown close.
 - **M2 (done):** optional Redis client lifecycle; in-process per-IP login rate limit.
-- **M3:** refresh JWT issue/rotate/logout.
+- **M3 (partial):** access/refresh JWT issue. Refresh-token storage, rotation,
+  revocation, and logout remain pending.
 - **M4:** tracing/metrics, validation error i18n.
 - **M5:** turn it into a code generator / `gonew` template.

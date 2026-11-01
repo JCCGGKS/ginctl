@@ -32,7 +32,7 @@ func NewAuthService(svcCtx *svc.ServiceContext) *AuthService {
 	return &AuthService{svcCtx: svcCtx}
 }
 
-// Login validates credentials and issues an access token.
+// Login validates credentials and issues an access/refresh token pair.
 func (s *AuthService) Login(ctx context.Context, req *schema.LoginRequest) (*schema.LoginResponse, error) {
 	if ctx.Err() != nil {
 		return nil, apperrors.Timeout("request cancelled")
@@ -61,6 +61,11 @@ func (s *AuthService) Login(ctx context.Context, req *schema.LoginRequest) (*sch
 		logger.App().Error(ctx, "login jwt issue failed", zap.Uint64("user_id", user.ID), zap.Error(err))
 		return nil, fmt.Errorf("issue jwt: %w", err)
 	}
+	refreshToken, refreshExpiresAt, err := s.svcCtx.JWTManager.IssueRefresh(user.ID, user.Username)
+	if err != nil {
+		logger.App().Error(ctx, "login refresh jwt issue failed", zap.Uint64("user_id", user.ID), zap.Error(err))
+		return nil, fmt.Errorf("issue refresh jwt: %w", err)
+	}
 
 	logger.App().Info(ctx, "login succeeded",
 		zap.Uint64("user_id", user.ID),
@@ -68,6 +73,52 @@ func (s *AuthService) Login(ctx context.Context, req *schema.LoginRequest) (*sch
 	)
 
 	return &schema.LoginResponse{
+		AccessToken:      accessToken,
+		AccessExpiresAt:  expiresAt.Unix(),
+		RefreshToken:     refreshToken,
+		RefreshExpiresAt: refreshExpiresAt.Unix(),
+		User: schema.UserDTO{
+			ID:       user.ID,
+			Username: user.Username,
+		},
+	}, nil
+}
+
+// Refresh validates a refresh token and issues a new access token.
+func (s *AuthService) Refresh(ctx context.Context, req *schema.RefreshRequest) (*schema.RefreshResponse, error) {
+	if ctx.Err() != nil {
+		return nil, apperrors.Timeout("request cancelled")
+	}
+
+	claims, err := s.svcCtx.JWTManager.ParseRefresh(strings.TrimSpace(req.RefreshToken))
+	if err != nil {
+		return nil, rejectRefresh(ctx)
+	}
+
+	user, err := s.svcCtx.DAO.User.FindByID(ctx, claims.UserID)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrUserNotFound) {
+			return nil, rejectRefresh(ctx)
+		}
+		if ctx.Err() != nil {
+			return nil, apperrors.Timeout("request cancelled")
+		}
+		logger.App().Error(ctx, "refresh user lookup failed", zap.Uint64("user_id", claims.UserID), zap.Error(err))
+		return nil, fmt.Errorf("query user: %w", err)
+	}
+
+	accessToken, expiresAt, err := s.svcCtx.JWTManager.Issue(user.ID, user.Username)
+	if err != nil {
+		logger.App().Error(ctx, "refresh jwt issue failed", zap.Uint64("user_id", user.ID), zap.Error(err))
+		return nil, fmt.Errorf("issue jwt: %w", err)
+	}
+
+	logger.App().Info(ctx, "token refreshed",
+		zap.Uint64("user_id", user.ID),
+		zap.String("username", user.Username),
+	)
+
+	return &schema.RefreshResponse{
 		AccessToken:     accessToken,
 		AccessExpiresAt: expiresAt.Unix(),
 		User: schema.UserDTO{
@@ -75,6 +126,11 @@ func (s *AuthService) Login(ctx context.Context, req *schema.LoginRequest) (*sch
 			Username: user.Username,
 		},
 	}, nil
+}
+
+func rejectRefresh(ctx context.Context) error {
+	logger.App().Warn(ctx, "refresh rejected", zap.String("reason", "invalid_refresh_token"))
+	return apperrors.ErrInvalidRefreshToken
 }
 
 func invalidCredentials(ctx context.Context, username string) error {

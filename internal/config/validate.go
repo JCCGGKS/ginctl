@@ -22,6 +22,7 @@ func (c Config) Validate() error {
 		{"auth.jwtSecret", required(c.Auth.JWTSecret)},
 		{"auth.jwtSecret", prodSecret(c.Server.Env, c.Auth.JWTSecret)},
 		{"auth.accessExpireSeconds", positive(c.Auth.AccessExpireSeconds)},
+		{"auth.refreshExpireSeconds", positive(c.Auth.RefreshExpireSeconds)},
 		{"auth.loginRatePerMinute", inRange(c.Auth.LoginRatePerMinute, 1, 10000)},
 		{"mysql.host", required(c.MySQL.Host)},
 		{"mysql.port", inRange(c.MySQL.Port, 1, 65535)},

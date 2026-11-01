@@ -20,7 +20,8 @@ const maxRequestBodyBytes = 1 << 20
 // noAuthRoutes lists endpoints mounted on the authenticated /api/v1 group that
 // stay public. Keys must exactly match "METHOD /full/route/pattern".
 var noAuthRoutes = middleware.NoAuthRoutes{
-	"POST /api/v1/login": {},
+	"POST /api/v1/login":        {},
+	"POST /api/v1/auth/refresh": {},
 }
 
 // New builds the gin engine with global middleware and all routes.
@@ -69,6 +70,8 @@ func registerRoutes(engine *gin.Engine, svcCtx *svc.ServiceContext) {
 	v1 := engine.Group("/api/v1", middleware.Auth(svcCtx.JWTManager, apperrors.Unauthorized, noAuthRoutes))
 
 	loginLimiter := middleware.NewFixedWindowLimiter(svcCtx.Config.Auth.LoginRatePerMinute, time.Minute)
+	refreshLimiter := middleware.NewFixedWindowLimiter(svcCtx.Config.Auth.LoginRatePerMinute, time.Minute)
 	v1.POST("/login", middleware.RateLimit(loginLimiter, apperrors.TooManyRequests), authHandler.Login)
+	v1.POST("/auth/refresh", middleware.RateLimit(refreshLimiter, apperrors.TooManyRequests), authHandler.Refresh)
 	v1.GET("/me", authHandler.Me)
 }

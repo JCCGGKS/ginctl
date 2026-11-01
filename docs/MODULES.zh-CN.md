@@ -1,6 +1,6 @@
 # gin-scaffold 当前骨架模块梳理
 
-> 基线状态：当前工作区（已完成日志改造、MySQL + GORM、可选 Redis 客户端接入；已接入单实例登录限流）
+> 基线状态：当前工作区（已完成日志改造、MySQL + GORM、可选 Redis 客户端接入、单实例登录限流；已提供最简 Refresh Token 接口）
 >
 > 整理目标：按模块说明当前代码的职责、依赖边界、运行链路和审查重点。本文描述的是当前已实现状态，不把规划中的能力写成既有能力。
 
@@ -9,8 +9,8 @@
 - 项目是一个 Gin 服务骨架，启动时依赖可用的 MySQL；Redis 是可选依赖，连接失败只会记录 warning，不阻断启动。
 - 分层主线清晰：`handler -> business -> dao`，`middleware` 负责横切能力，`svc` 负责依赖装配，`common` 放可复用的通用公共能力。
 - 启动流程包含配置加载、配置校验、日志初始化、依赖装配、路由构建、HTTP 服务和优雅关闭。
-- 已有能力：JWT 登录与鉴权、统一响应、错误码、访问日志、请求 ID、panic 恢复、三模块日志、可配置的按天切割、日志压缩和保留清理、MySQL 连接池、可选 Redis 连接池、启动 ping 和关闭逻辑、请求体/请求头限制、安全响应头、登录限流和 JWT issuer/audience 校验。
-- 当前仍是骨架而非完整生产实现：用户表需要手动迁移，JWT 仍是单机无状态校验，没有刷新、撤销和黑名单。
+- 已有能力：JWT 登录、Refresh Token 换取 Access Token、鉴权、统一响应、错误码、访问日志、请求 ID、panic 恢复、三模块日志、可配置的按天切割、日志压缩和保留清理、MySQL 连接池、可选 Redis 连接池、启动 ping 和关闭逻辑、请求体/请求头限制、安全响应头、登录/刷新限流和 JWT issuer/audience/token_use 校验。
+- 当前仍是骨架而非完整生产实现：用户表需要手动迁移，JWT 仍是单机无状态校验，Refresh Token 不落库、不轮换，也没有主动撤销、黑名单和登出。
 - 日志已按 `app`、`gorm`、`access` 拆分，并通过 `request_id` 串联；业务内部日志统一写入 `app`，GORM 查询通过 `db.WithContext(ctx)` 写入 `gorm`，HTTP 请求和 Gin 输出写入 `access`。
 
 ## 1. 模块地图
@@ -47,7 +47,7 @@
 | 路由 | `internal/router/router.go` | Gin 引擎、中间件顺序、公开/受保护路由、404/405 |
 | 中间件 | `common/middleware/*.go` | 请求 ID、安全响应头、请求体限制、访问日志、panic 恢复、JWT 鉴权、限流 |
 | 处理器 | `internal/handler/*.go` | 绑定 HTTP 输入、调用业务、输出统一响应 |
-| 业务 | `internal/business/*.go` | 登录编排、凭证校验、错误语义、业务日志 |
+| 业务 | `internal/business/*.go` | 登录/刷新编排、凭证校验、错误语义、业务日志 |
 | DAO | `internal/dao/**` | 定义持久化接口并提供 MySQL/GORM 实现 |
 | 缓存 | `internal/cache/user.go` | 定义 Cache interface 和 Redis 实现；Redis 生命周期由 `svc` 私有持有 |
 | 错误定义 | `internal/errors/errors.go` | AppError、业务错误码、构造器、本业务域 sentinel error |
@@ -123,6 +123,7 @@ main
 
 - `SERVER_PORT`
 - `AUTH_JWTSECRET`
+- `AUTH_REFRESHEXPIRESECONDS`
 - `LOG_ROOTDIR`
 - `MYSQL_PASSWORD`
 - `REDIS_PASSWORD`
@@ -134,7 +135,7 @@ CLI 只保留 `-f`，默认值为 `etc/config_dev.yaml`。环境由配置文件�
 | 分组 | 关键字段 | 用途 |
 |---|---|---|
 | `server` | env、host、port | `env` 取 dev/test/prod 并映射 Gin mode；host/port 为 HTTP 监听地址；HTTP 读头/读/写/空闲超时和最大请求头固定为安全默认值 |
-| `auth` | jwtSecret、accessExpireSeconds、loginRatePerMinute | JWT 签发、有效期和单实例每 IP 登录限流 |
+| `auth` | jwtSecret、accessExpireSeconds、refreshExpireSeconds、loginRatePerMinute | JWT 签发、Access/Refresh 有效期和单实例每 IP 登录/刷新限流 |
 | `log` | rootDir、level、format、dailyRotate、timezone、maxSizeMB、maxAgeDays、compress | 日志根目录、级别、编码、按天开关、切日时区、大小分片、保留和压缩 |
 | `mysql` | 连接、库名、连接池、超时 | 建立 GORM 连接、启动 ping、连接池和优雅关闭 |
 | `redis` | 地址、密码、DB、连接池、超时 | 尝试建立 go-redis 客户端、启动 ping、连接池和优雅关闭；失败不阻断启动 |
@@ -147,7 +148,7 @@ CLI 只保留 `-f`，默认值为 `etc/config_dev.yaml`。环境由配置文件�
 - 端口范围合法。
 - Gin mode 由 `server.env` 自动映射，不再单独配置；prod 固定映射为 `release`。
 - JWT secret 必填；prod 长度至少 32 字节。
-- access TTL 和 `loginRatePerMinute` 为正数；登录限流上限为 10000 次/分钟。
+- Access/Refresh TTL 都必须为正数；`loginRatePerMinute` 为正数，且登录/刷新限流上限为 10000 次/分钟。
 - MySQL host/port/user/database/charset 必填且格式合法；prod 必须提供非空密码；连接池必须为正数或合法非负值，`maxIdleConns` 不能超过 `maxOpenConns`。
 - Redis host/port 必填；prod 必须提供非空密码；DB 不能为负数；连接池和各类超时必须为正数，`minIdleConns` 不能超过 `poolSize`。
 - 日志级别只能是 `debug/info/warn/error`，格式只能是 `console/json`；rootDir 和 timezone 不能为空，timezone 必须可加载；maxSizeMB 和 maxAgeDays 不能为负数；`dailyRotate=false` 且启用保留或压缩时，maxSizeMB 必须大于 `0`。
@@ -218,7 +219,8 @@ RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中�
 | 方法 | 路径 | 中间件 | 说明 |
 |---|---|---|---|
 | `GET` | `/healthz` | 全局中间件 | 极简存活探针，刻意不走统一 envelope |
-| `POST` | `/api/v1/login` | 全局 + JWT 鉴权放行 + 登录限流 | 用户名密码登录并签发 JWT（通过 `noAuthRoutes` 精确匹配放行） |
+| `POST` | `/api/v1/login` | 全局 + JWT 鉴权放行 + 限流 | 用户名密码登录，签发 Access/Refresh JWT（通过 `noAuthRoutes` 精确匹配放行） |
+| `POST` | `/api/v1/auth/refresh` | 全局 + JWT 鉴权放行 + 限流 | 校验 Refresh JWT，并签发新的 Access JWT（不要求 Access Token） |
 | `GET` | `/api/v1/me` | 全局 + JWT 鉴权 | 返回 JWT claims 中的当前用户身份 |
 
 ### 异常路由
@@ -243,20 +245,20 @@ RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中�
 | `AccessLog` | `accesslog.go` | 请求结束后记录 method/path/status/latency/client_ip/user_id | 写 `access` 模块日志 |
 | `Recovery` | `recovery.go` | recover panic，记录 app error 并返回统一 500 | `50000` |
 | `Auth` | `auth.go` | 校验 `Authorization: Bearer <JWT>`，解析后把 claims 放入 Gin context | `40100` |
-| `RateLimit` | `ratelimit.go` | 单实例固定窗口限流，按 `ClientIP` 计数；登录路由每分钟额度由 `auth.loginRatePerMinute` 控制 | `42900` + `Retry-After` |
+| `RateLimit` | `ratelimit.go` | 单实例固定窗口限流，按 `ClientIP` 计数；登录和刷新路由分别使用独立计数器，每分钟额度由 `auth.loginRatePerMinute` 控制 | `42900` + `Retry-After` |
 
 ### 关键行为
 
 - `AccessLog` 自动从 request context 获取 `request_id`；鉴权成功时补充 `user_id`。
-- `Auth` 只接受 HS256，并要求 secret 已配置；JWT 还必须匹配固定 issuer/audience、包含过期时间，并携带非空 `uid`/`username`。
-- 登录限流是进程内固定窗口，单实例有效；多实例部署需要网关或 Redis 共享限流。
+- `Auth` 只接受 HS256，并要求 secret 已配置；JWT 还必须匹配固定 issuer/audience、包含过期时间、携带非空 `uid`/`username`，且 `token_use=access`。
+- 登录和刷新限流都是进程内固定窗口，单实例有效；多实例部署需要网关或 Redis 共享限流。
 
 ### 审查关注
 
 - `ClientIP` 使用直连地址，部署在反向代理后需要重新评估真实 IP 获取方式。
 - `X-Request-Id` 已限制长度和字符集；非法值会被服务端 ID 替换，避免日志注入。
-- 在反向代理后，`ClientIP` 可能是代理地址，按 IP 的登录限流会退化为共享额度；需要配置可信代理或改用共享限流。
-- JWT 是无状态校验，没有 JWT 撤销、黑名单、刷新和登出语义。
+- 在反向代理后，`ClientIP` 可能是代理地址，按 IP 的登录/刷新限流会退化为共享额度；需要配置可信代理或改用共享限流。
+- JWT 是无状态校验；Refresh Token 可以换取 Access Token，但没有服务端撤销、轮换、黑名单和登出语义。
 - `Recovery` 会先记录一次 `panic recovered`，随后 `common.Fail` 还会记录一次 5xx 的 `request failed`，同一 panic 可能产生两条 app error 日志。
 
 ## 8. HTTP 处理器模块
@@ -273,6 +275,17 @@ RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中�
 2. `ShouldBindJSON` 绑定 `schema.LoginRequest`，必填字段和最大长度由 binding tag 校验；绑定失败返回 400。
 3. 调用 handler 持有的 `AuthService.Login(c.Request.Context(), &req)`。
 4. 所有错误交给 `common.Fail`：业务已把凭证错误、context 取消等转换为 `AppError`，handler 不再维护错误类型 switch。
+
+### 刷新处理器
+
+文件：`internal/handler/auth.go`
+
+流程：
+
+1. 要求 `Content-Type: application/json`。
+2. `ShouldBindJSON` 绑定 `schema.RefreshRequest`，Refresh Token 必填且长度不超过 4096。
+3. 调用 `AuthService.Refresh`。
+4. 业务把签名错误、过期、用途不匹配、用户不存在等情况统一转换为 401 `ErrInvalidRefreshToken`；handler 仍只调用 `common.Fail`。
 
 ### 当前用户处理器
 
@@ -292,6 +305,7 @@ RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中�
 ### 审查关注
 
 - 登录输入已限制用户名 ≤64、密码 ≤72；请求体另有 1 MiB 全局上限。
+- Refresh 输入只接受 `refresh_token`，长度上限 4096；错误响应不区分内部失败原因。
 - handler 不再按错误类型分支，`AppError` 多态和 `common.Fail` 统一完成 HTTP 映射，边界更简单。
 - `/api/v1/me` 信任 JWT claims 中的身份；如果引入用户禁用、角色变更等实时状态，需要重新设计为查询会话或用户状态。
 
@@ -299,7 +313,7 @@ RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中�
 
 目录：`internal/business/`
 
-### `AuthService.Login`
+### `AuthService.Login` / `AuthService.Refresh`
 
 文件：`internal/business/auth.go`
 
@@ -311,8 +325,16 @@ RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中�
 2. 通过 `UserDAO.FindByUsername` 查询用户。
 3. 用户不存在时执行一次 dummy bcrypt 比较，使未知用户和密码错误的耗时路径接近。
 4. 用户存在时执行真实 bcrypt 比较。
-5. 通过 `JWTManager.Issue` 签发访问 JWT。
-6. 返回 `LoginResponse`，其中包含 JWT、过期时间和最小化用户 DTO。
+5. 通过 `JWTManager.Issue` 和 `JWTManager.IssueRefresh` 分别签发 Access/Refresh JWT。
+6. 返回 `LoginResponse`，其中包含两类 JWT、各自过期时间和最小化用户 DTO。
+
+Refresh 业务步骤：
+
+1. 调用 `JWTManager.ParseRefresh` 校验签名、issuer、audience、过期时间和 `token_use=refresh`。
+2. 根据 Refresh JWT 中的 `uid` 调用 `UserDAO.FindByID` 查询当前用户。
+3. 用户不存在或 Token 校验失败时，统一返回 `ErrInvalidRefreshToken`（401）。
+4. 使用数据库中的当前用户名重新签发 Access JWT。
+5. 返回新的 Access JWT、过期时间和用户 DTO；不轮换 Refresh Token。
 
 ### 错误语义
 
@@ -322,13 +344,16 @@ RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中�
 
 - 登录成功：`info`，包含 `user_id`、`username`。
 - 凭证错误：`warn`，包含 `username` 和 `reason=invalid_credentials`。
+- Refresh 成功：`info`，包含 `user_id`、`username`。
+- Refresh 被拒绝：`warn`，只记录 `reason=invalid_refresh_token`，不记录 Token 原文。
 - DAO 查询失败、JWT 签发失败：`error`。
 - 不记录密码、密码哈希和 JWT。
 
 ### 审查关注
 
 - dummy bcrypt 只能均衡未知用户与已知用户密码错误的时间差，不能替代完整的安全审计。
-- 当前只有按 IP 的进程内登录限流；没有按账号累计失败、账号锁定、验证码、刷新 JWT 和登出。
+- 当前只有按 IP 的进程内登录/刷新限流；没有按账号累计失败、账号锁定、验证码和登出。
+- Refresh Token 是无状态 JWT，不落库也不轮换；签发后在过期前一直有效，无法主动撤销。
 - `AuthService` 直接使用共享 `ServiceContext`，减少构造参数拼接；代价是业务层与容器耦合，单测时需要提供对应依赖。数据库操作仍必须留在 DAO 层。
 
 ## 10. 数据访问与模型模块
@@ -340,6 +365,7 @@ RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中�
 ```go
 type UserDAO interface {
     FindByUsername(ctx context.Context, username string) (*model.User, error)
+    FindByID(ctx context.Context, id uint64) (*model.User, error)
 }
 ```
 
@@ -353,7 +379,7 @@ type UserDAO interface {
 文件：`internal/dao/user.go`
 
 - `GormUserDAO` 持有 `*gorm.DB`，由 `NewUserDAO` 构造，并实现 `UserDAO` 接口。
-- `FindByUsername` 使用 `db.WithContext(ctx)` 执行参数化查询，保证查询能被请求取消，并让 GORM 日志拿到同一个 `request_id`。
+- `FindByUsername` 和 `FindByID` 都使用 `db.WithContext(ctx)` 执行参数化查询，保证查询能被请求取消，并让 GORM 日志拿到同一个 `request_id`。
 - `gorm.ErrRecordNotFound` 转换为 `internal/errors.ErrUserNotFound`，其他数据库错误带上下文返回。
 - 不记录明文密码、密码哈希或 JWT。
 
@@ -374,9 +400,9 @@ type UserDAO interface {
 
 ### 审查关注
 
-- 还没有事务封装、软删除和业务级查询超时；当前只提供一个按用户名查询。
+- 还没有事务封装、软删除和业务级查询超时；当前只有按用户名和按 ID 查询。
 - 迁移脚本没有接入自动执行工具，部署流程需要显式执行。
-- 当前 `UserDAO` 只有按用户名查询，没有创建、更新、禁用等生命周期接口。
+- 当前 `UserDAO` 只有按用户名和按 ID 查询，没有创建、更新、禁用等生命周期接口。
 
 ## 11. API DTO 模块
 
@@ -385,7 +411,9 @@ type UserDAO interface {
 | 类型 | 用途 |
 |---|---|
 | `LoginRequest` | 登录输入，用户名和密码均必填 |
-| `LoginResponse` | 登录输出，包含 access token、过期时间和用户 DTO |
+| `LoginResponse` | 登录输出，包含 access/refresh token、各自过期时间和用户 DTO |
+| `RefreshRequest` | 刷新输入，`refresh_token` 必填且不超过 4096 字符 |
+| `RefreshResponse` | 刷新输出，包含新的 access token、过期时间和用户 DTO |
 | `UserDTO` | 对外用户视图，仅包含 id 和 username |
 
 该模块与 `model` 分离：HTTP 结构不直接复用存储结构，避免数据库字段和 API 字段互相污染。
@@ -489,12 +517,13 @@ type UserDAO interface {
 文件：`common/jwt.go`
 
 - 使用 HS256。
-- `AuthClaims` 包含 `uid`、`username` 和标准 RegisteredClaims。
-- `Issue` 写入固定 issuer/audience、subject、签发时间和过期时间；TTL 非正数时回退 15 分钟。
-- `Parse` 使用 `WithValidMethods` 只接受 HS256，并校验 issuer、audience、必需过期时间和 30 秒时钟偏差；解析后拒绝空 `uid`/`username`。
+- `AuthClaims` 包含 `uid`、`username`、`token_use` 和标准 RegisteredClaims。
+- `Issue` 签发 `token_use=access`；`IssueRefresh` 签发 `token_use=refresh`。两者都写入固定 issuer/audience、以用户 ID 表示的 subject、签发时间和过期时间；TTL 非正数时分别回退 15 分钟和 7 天。
+- `Parse` 使用 `WithValidMethods` 只接受 HS256，并校验 issuer、audience、必需过期时间和 30 秒时钟偏差；解析后拒绝空 `uid`/`username`，要求 `sub` 与 `uid` 一致，并且只接受 `token_use=access`。
+- `ParseRefresh` 复用同一套校验，但只接受 `token_use=refresh`，防止 Refresh Token 被当作 Access Token 使用，也防止 Access Token 调用刷新接口。
 - `ExtractBearer` 只接受 `Bearer <JWT>` 形式，大小写不敏感。
 
-当前没有 not-before、刷新 JWT、撤销、黑名单和密钥轮换。
+当前没有 not-before、Refresh Token 轮换/存储/撤销、黑名单和密钥轮换。
 
 ## 13. 请求链路
 
@@ -514,6 +543,7 @@ POST /api/v1/login
             -> UserDAO.FindByUsername
             -> bcrypt 校验
             -> JWTManager.Issue
+            -> JWTManager.IssueRefresh
             -> app 日志（业务事件）
        -> common.OK
   -> AccessLog 写 access 日志
@@ -521,7 +551,27 @@ POST /api/v1/login
 
 成功时，app 中的业务日志、GORM 查询日志和 access 日志共享同一个 `request_id`；DAO 使用 `db.WithContext(ctx)` 把请求上下文传给 GORM。
 
-### 13.2 当前用户
+### 13.2 刷新 Token
+
+```text
+POST /api/v1/auth/refresh
+  RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery
+  -> RateLimit（按 ClientIP，独立于登录计数器）
+  -> middleware.Auth 放行（noAuthRoutes 精确匹配）
+  -> handler.Refresh
+       -> ShouldBindJSON(schema.RefreshRequest)
+       -> AuthService.Refresh
+            -> JWTManager.ParseRefresh（要求 token_use=refresh）
+            -> UserDAO.FindByID
+            -> JWTManager.Issue
+            -> app 日志（token refreshed / refresh rejected）
+       -> common.OK
+  -> AccessLog
+```
+
+该接口不要求 Access Token，因为它必须能在 Access Token 过期后调用；但它必须携带有效 Refresh Token。所有刷新失败统一返回 401 `refresh token is invalid`，不向客户端区分过期、签名错误、用途错误或用户不存在。
+
+### 13.3 当前用户
 
 ```text
 GET /api/v1/me
@@ -536,7 +586,7 @@ GET /api/v1/me
   -> AccessLog（鉴权成功时附带 user_id）
 ```
 
-### 13.3 404 / 405
+### 13.4 404 / 405
 
 ```text
 RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> NoRoute / NoMethod
@@ -567,12 +617,12 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 
 - MySQL 已接入 GORM、连接池、启动 ping 和关闭逻辑；Cache 层已接 Redis 客户端、连接池、启动 ping 和关闭逻辑，但它是可选依赖，连接失败只记录 warning，且当前没有路由使用 Cache。
 - 用户表需要先执行 `migrations/001_create_users.sql`，且没有内置种子账号。
-- 没有事务、锁、软删除、迁移工具和查询超时封装；当前只有一条按用户名查询。
+- 没有事务、锁、软删除、迁移工具和查询超时封装；当前只有按用户名和按 ID 查询。
 
 ### 安全
 
-- 登录已限制用户名/密码长度并有单实例按 IP 限流；仍没有按账号累计失败、账号锁定、验证码和分布式限流。
-- JWT 已校验 issuer/audience/expiry 并拒绝空身份 claims；仍没有刷新、撤销、黑名单和密钥轮换。
+- 登录已限制用户名/密码长度，登录和刷新均有单实例按 IP 限流；仍没有按账号累计失败、账号锁定、验证码和分布式限流。
+- JWT 已校验 issuer/audience/expiry/token_use 并拒绝空身份 claims；仍没有 Refresh Token 持久化、轮换、主动撤销、黑名单和密钥轮换。
 - `X-Request-Id` 已限制长度和字符；非法输入会被服务端 ID 替换。
 - 请求体和请求头已有上限，HTTP Server 已配置读头/读/写/空闲超时。
 - GORM 日志默认只保留 SQL 占位符、不记录参数；如显式开启参数记录，敏感字段需要脱敏。
@@ -608,6 +658,7 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 1. 将迁移脚本接入部署流程，并建立开发/生产的种子用户管理方式。
 2. 验证 `request_id` 在 MySQL/GORM 查询日志中的贯穿，并补充数据库错误分类。
 3. 评估账号锁定、验证码和分布式限流（Redis/网关）策略；当前限流是单实例按 IP。
-4. 增加 stdout/远程日志采集，并在部署环境验证保留、压缩和磁盘容量策略。
-5. 增加 metrics、trace、依赖健康检查和 readiness 路由。
-6. 补充核心路径测试；如项目要求“不保留测试文件”，则至少保留 CI 中的构建和静态检查。
+4. 为 Refresh Token 增加服务端会话表、轮换、重放检测和撤销，以支持改密失效、单设备登出和全端下线。
+5. 增加 stdout/远程日志采集，并在部署环境验证保留、压缩和磁盘容量策略。
+6. 增加 metrics、trace、依赖健康检查和 readiness 路由。
+7. 补充核心路径测试；如项目要求“不保留测试文件”，则至少保留 CI 中的构建和静态检查。

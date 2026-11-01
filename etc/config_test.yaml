@@ -7,6 +7,7 @@ server:
 auth:
   jwtSecret: test-secret
   accessExpireSeconds: 900
+  refreshExpireSeconds: 604800
   loginRatePerMinute: 20
 
 log:

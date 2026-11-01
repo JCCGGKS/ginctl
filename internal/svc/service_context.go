@@ -60,8 +60,12 @@ func NewServiceContext(c *config.Config) (*ServiceContext, error) {
 	}
 
 	return &ServiceContext{
-		Config:      c,
-		JWTManager:  common.NewJWTManager(secret, time.Duration(c.Auth.AccessExpireSeconds)*time.Second),
+		Config: c,
+		JWTManager: common.NewJWTManager(
+			secret,
+			time.Duration(c.Auth.AccessExpireSeconds)*time.Second,
+			time.Duration(c.Auth.RefreshExpireSeconds)*time.Second,
+		),
 		DAO:         dao.NewRegistry(db),
 		Cache:       cache.NewRegistry(redisClient),
 		sqlDB:       sqlDB,

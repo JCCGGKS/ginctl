@@ -42,3 +42,25 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	common.OK(c, resp)
 }
+
+// Refresh exchanges a refresh token for a new access token.
+func (h *AuthHandler) Refresh(c *gin.Context) {
+	if c.ContentType() != "application/json" {
+		common.Fail(c, apperrors.BadRequest("content type must be application/json"))
+		return
+	}
+
+	var req schema.RefreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.Fail(c, apperrors.BadRequest("invalid request body"))
+		return
+	}
+
+	resp, err := h.auth.Refresh(c.Request.Context(), &req)
+	if err != nil {
+		common.Fail(c, err)
+		return
+	}
+
+	common.OK(c, resp)
+}

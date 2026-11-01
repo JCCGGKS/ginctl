@@ -39,9 +39,10 @@ type ServerConf struct {
 }
 
 type AuthConf struct {
-	JWTSecret           string `mapstructure:"jwtSecret"`
-	AccessExpireSeconds int    `mapstructure:"accessExpireSeconds"`
-	LoginRatePerMinute  int    `mapstructure:"loginRatePerMinute"`
+	JWTSecret            string `mapstructure:"jwtSecret"`
+	AccessExpireSeconds  int    `mapstructure:"accessExpireSeconds"`
+	RefreshExpireSeconds int    `mapstructure:"refreshExpireSeconds"`
+	LoginRatePerMinute   int    `mapstructure:"loginRatePerMinute"`
 }
 
 // MySQLConf holds connection-pool settings for a MySQL instance. DSN builds the
@@ -148,6 +149,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("auth.jwtSecret", "")
 	v.SetDefault("auth.accessExpireSeconds", 900)
+	v.SetDefault("auth.refreshExpireSeconds", 604800)
 	v.SetDefault("auth.loginRatePerMinute", 20)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "console")

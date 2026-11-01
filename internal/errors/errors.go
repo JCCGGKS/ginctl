@@ -80,6 +80,11 @@ var (
 	// the same 401 response and callers cannot distinguish account existence.
 	ErrInvalidCredentials = NewAppError(http.StatusUnauthorized, CodeUnauthorized, "username or password is invalid")
 
+	// ErrInvalidRefreshToken is the single public response for every refresh
+	// failure, so callers cannot distinguish expired, malformed, or unknown-user
+	// tokens.
+	ErrInvalidRefreshToken = NewAppError(http.StatusUnauthorized, CodeUnauthorized, "refresh token is invalid")
+
 	// ErrCacheMiss reports that the requested cache key is not present.
 	ErrCacheMiss = stderrors.New("cache miss")
 

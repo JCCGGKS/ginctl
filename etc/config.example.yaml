@@ -13,7 +13,8 @@ server:
 
 auth:
   jwtSecret: "change-me-before-deploying-32bytes"  # HS256 签名密钥，必填；prod 至少 32 字节，建议通过 AUTH_JWTSECRET 注入
-  accessExpireSeconds: 900           # access token 有效期，单位秒；当前默认 900 秒（15 分钟）
+  accessExpireSeconds: 900           # access token 有效期，单位秒；默认 900 秒（15 分钟）
+  refreshExpireSeconds: 604800       # refresh token 有效期，单位秒；默认 7 天
   loginRatePerMinute: 20             # 单实例内每个客户端 IP 每分钟允许的登录请求数；多实例部署仍需网关限流
 
 log:
