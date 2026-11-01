@@ -202,20 +202,31 @@ type ServiceContext struct {
 
 ### 全局中间件顺序
 
-当前注册顺序：
+当前完整注册顺序：
 
 ```text
-RequestID -> SecurityHeaders -> AccessLog -> CORS -> BodyLimit -> Recovery -> 路由中间件 -> handler
+RequestID -> SecurityHeaders -> AccessLog -> CORS -> BodyLimit -> Recovery
+  -> middleware.Auth（/api/v1 分组） -> RateLimit（登录/刷新路由） -> handler
 ```
 
 顺序含义：
 
-- `RequestID` 最先执行，后续日志和响应都能拿到请求 ID。
-- `SecurityHeaders` 在响应写出前设置安全头。
-- `AccessLog` 包住后续链路，请求结束后记录最终状态和耗时。
-- `CORS` 在业务鉴权前处理跨域来源和预检请求，未匹配来源返回 403。
-- `BodyLimit` 在 handler 解码前限制请求体大小。
-- `Recovery` 位于访问日志内部，panic 被转换成 500 后，访问日志仍能记录 500。
+- `RequestID` 必须最先执行：后续 AccessLog、app 日志和错误 envelope 都依赖它；即使请求被 CORS 提前拒绝，客户端也能拿到 `X-Request-Id`。
+- `SecurityHeaders` 放在 CORS 前：CORS 来源拒绝、BodyLimit 拒绝和 Recovery 生成的 500 响应也能带安全响应头。
+- `AccessLog` 放在 CORS 和 Recovery 外层：CORS 预检、来源拒绝、鉴权失败和 panic 恢复请求都会被记录；请求结束后还能读取最终状态码和 claims 中的 `user_id`。
+- `CORS` 放在 BodyLimit 和 Auth 前：预检请求直接返回 `204`，不读取请求体；未授权来源在 JWT 解析前就被拒绝。
+- `BodyLimit` 放在 Auth 和 handler 前：登录、刷新和业务 handler 解码 JSON 之前，请求体已经被限制为 1 MiB。
+- `Recovery` 放在 Auth、RateLimit 和 handler 前：这些后续链路的 panic 会被转换成统一 500，再由外层 AccessLog 记录为 500。
+- `middleware.Auth` 挂在 `/api/v1` 分组上：默认整组鉴权，`noAuthRoutes` 只放过精确匹配的登录和刷新接口；它对公开路由只做放行，不解析 Access Token。
+- `RateLimit` 挂在登录和刷新路由上：位于 Auth 之后、handler 之前；这两个接口通过 `noAuthRoutes` 跳过 JWT 校验后，仍会先经过独立限流器。
+
+Recovery 的覆盖边界：
+
+- 当前 `Recovery` 只覆盖它下游的 `Auth`、`RateLimit` 和 `handler`，不覆盖 `RequestID`、`SecurityHeaders`、`AccessLog`、`CORS`、`BodyLimit` 自身的 panic。
+- 这与 Gin 默认 `Logger -> Recovery` 的取舍一致：Handler panic 被抓取并写出 500 后，外层 AccessLog 仍能正常记录状态；如果把 Recovery 移到最外层而不调整 AccessLog，panic 请求可能缺失访问日志。
+- 上述前置中间件逻辑都很短且不处理业务数据，实际 panic 概率低；当前顺序是合理取舍，不建议为了极端场景叠加双层 Recovery，除非明确要求全链路 panic 兜底。
+
+`NoRoute` 和 `NoMethod` 同样经过上述全局中间件链，因此 404/405 也有请求 ID、安全响应头、访问日志和 CORS 处理。
 
 ### 路由表
 
