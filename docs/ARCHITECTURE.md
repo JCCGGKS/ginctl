@@ -70,7 +70,7 @@ bounded connection pools and startup pings.
 Public liveness probe (`GET /healthz`):
 
 ```
-RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> handler.Health
+RequestID -> SecurityHeaders -> AccessLog -> CORS -> BodyLimit -> Recovery -> handler.Health
   -> 200 {status:"ok"}
 ```
 
@@ -79,14 +79,14 @@ Login, refresh, and protected read (`POST /api/v1/login`,
 
 ```
 POST /api/v1/login:
-  RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery
+  RequestID -> SecurityHeaders -> AccessLog -> CORS -> BodyLimit -> Recovery
   -> rate limit (per client IP) -> handler.Login.bind
     -> AuthService.Login (dao lookup + timing-equalized bcrypt compare)
     -> JWTManager.Issue + JWTManager.IssueRefresh
     -> common.OK {access_token, refresh_token, user}
 
 POST /api/v1/auth/refresh:
-  RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery
+  RequestID -> SecurityHeaders -> AccessLog -> CORS -> BodyLimit -> Recovery
   -> rate limit (per client IP; route bypasses Access Token auth)
     -> handler.Refresh.bind -> AuthService.Refresh
        -> JWTManager.ParseRefresh (requires token_use=refresh)
@@ -95,13 +95,13 @@ POST /api/v1/auth/refresh:
     -> common.OK {access_token, user}
 
 GET /api/v1/me:
-  RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery
+  RequestID -> SecurityHeaders -> AccessLog -> CORS -> BodyLimit -> Recovery
     -> middleware.Auth (verify Bearer + set claims)
     -> handler.Me (CurrentClaims) -> common.OK {id, username}
 <- AccessLog logs status + request_id (+ user_id when authenticated)
 
 Unknown route / wrong method:
-  RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> NoRoute/NoMethod
+  RequestID -> SecurityHeaders -> AccessLog -> CORS -> BodyLimit -> Recovery -> NoRoute/NoMethod
     -> common.Fail (40400 / 40500)
 ```
 

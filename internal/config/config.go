@@ -27,6 +27,7 @@ const DefaultEnv = "dev"
 type Config struct {
 	Server ServerConf    `mapstructure:"server"`
 	Auth   AuthConf      `mapstructure:"auth"`
+	CORS   CORSConf      `mapstructure:"cors"`
 	Log    logger.Config `mapstructure:"log"`
 	MySQL  MySQLConf     `mapstructure:"mysql"`
 	Redis  RedisConf     `mapstructure:"redis"`
@@ -43,6 +44,17 @@ type AuthConf struct {
 	AccessExpireSeconds  int    `mapstructure:"accessExpireSeconds"`
 	RefreshExpireSeconds int    `mapstructure:"refreshExpireSeconds"`
 	LoginRatePerMinute   int    `mapstructure:"loginRatePerMinute"`
+}
+
+// CORSConf controls cross-origin access. An empty AllowOrigins disables CORS.
+// AllowCredentials cannot be combined with a wildcard origin.
+type CORSConf struct {
+	AllowOrigins     []string `mapstructure:"allowOrigins"`
+	AllowMethods     []string `mapstructure:"allowMethods"`
+	AllowHeaders     []string `mapstructure:"allowHeaders"`
+	ExposeHeaders    []string `mapstructure:"exposeHeaders"`
+	AllowCredentials bool     `mapstructure:"allowCredentials"`
+	MaxAgeSeconds    int      `mapstructure:"maxAgeSeconds"`
 }
 
 // MySQLConf holds connection-pool settings for a MySQL instance. DSN builds the
@@ -151,6 +163,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.accessExpireSeconds", 900)
 	v.SetDefault("auth.refreshExpireSeconds", 604800)
 	v.SetDefault("auth.loginRatePerMinute", 20)
+	v.SetDefault("cors.allowOrigins", []string{})
+	v.SetDefault("cors.allowMethods", []string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
+	v.SetDefault("cors.allowHeaders", []string{"Authorization", "Content-Type", "X-Request-Id"}) // 认证凭据、JSON 媒体类型、请求追踪 ID
+	v.SetDefault("cors.exposeHeaders", []string{"X-Request-Id"})                                 // 允许前端读取请求追踪 ID
+	v.SetDefault("cors.allowCredentials", false)
+	v.SetDefault("cors.maxAgeSeconds", 600)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "console")
 	v.SetDefault("log.rootDir", "logs")

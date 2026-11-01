@@ -96,6 +96,7 @@ func RateLimit(limiter *FixedWindowLimiter, tooMany ErrorBuilder) gin.HandlerFun
 		if retryAfter < 1 {
 			retryAfter = 1
 		}
+		// Retry-After：告诉客户端多少秒后可以重试，单位秒。
 		c.Header("Retry-After", strconv.Itoa(retryAfter))
 		common.Fail(c, tooMany("too many requests"))
 	}

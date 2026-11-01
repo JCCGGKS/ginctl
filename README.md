@@ -28,6 +28,8 @@ Pass `--no-git` to skip repository initialization.
 - Auth hardening: bounded credentials/body, timing-equalized credential checks,
   issuer/audience-bound JWTs with access/refresh separation, and an in-process
   login/refresh rate limit per client IP.
+- CORS: disabled by default, with an exact origin allowlist, preflight checks,
+  and a guard against wildcard origins combined with credentials.
 - Unified response envelope + typed `AppError` with business error codes.
 - `X-Forwarded-For` is never trusted; `ClientIP` uses the direct socket address.
 - Interface-based data access: `internal/dao` contract + MySQL/GORM implementation.
@@ -51,7 +53,7 @@ internal/
   schema/                 request/response DTOs
 common/                   public packages shared across services
   logger/                 per-module zap loggers + daily rotation + gorm adapter + request_id context
-  middleware/             requestid, security headers, body limit, accesslog, recovery, auth (JWT), rate limit
+  middleware/             requestid, security headers, CORS, body limit, accesslog, recovery, auth (JWT), rate limit
   model/                  storage-side structs (db tags)
   response.go             unified response envelope and writers
   jwt.go                  JWT issue/parse (HS256 + custom claims)
@@ -116,6 +118,28 @@ environment:
 lifetimes (defaults: 15 minutes and 7 days). `auth.loginRatePerMinute` bounds
 login and refresh requests per client IP on a single instance. Multi-instance
 deployments should still enforce a shared limit at the gateway or in Redis.
+
+## CORS config
+
+CORS is disabled when `cors.allowOrigins` is empty. Add exact frontend origins
+to enable it:
+
+```yaml
+cors:
+  allowOrigins:
+    - "http://localhost:3000"
+  allowMethods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+  allowHeaders: ["Authorization", "Content-Type", "X-Request-Id"]
+  exposeHeaders: ["X-Request-Id"]
+  allowCredentials: false
+  maxAgeSeconds: 600
+```
+
+Origins are matched exactly after normalizing a trailing slash. `*` is allowed
+only when `allowCredentials` is false; configuration with both is rejected at
+startup. Preflight requests validate the requested method and headers against
+the configured allowlists. CORS is a browser access-control mechanism, not an
+authentication or CSRF defense.
 
 ## MySQL & Redis config
 
@@ -270,8 +294,10 @@ via `MYSQL_PASSWORD` and `REDIS_PASSWORD`.
   are rejected.
 - Login failures use one public 401 response with a dummy bcrypt comparison for
   unknown users, reducing account enumeration by response and timing.
-- API responses set `nosniff`, frame denial, no-referrer, a deny-all CSP, and
-  `Cache-Control: no-store`.
+- `SecurityHeaders` sets `nosniff`, frame denial, no-referrer, a deny-all CSP,
+  and `Cache-Control: no-store` on every response as defense in depth.
+- When enabled, CORS rejects non-allowlisted origins and validates every
+  preflight request; it never reflects an arbitrary origin.
 - 404 and 405 responses use the same JSON envelope and business-code namespace
   as other endpoints.
 
@@ -279,7 +305,7 @@ via `MYSQL_PASSWORD` and `REDIS_PASSWORD`.
 
 Every business JSON endpoint returns `{code,msg,data,request_id,timestamp}`.
 `code=0` means success; business codes are independent of HTTP status (e.g.
-`40100` for unauthorized, `40400` for not found, and `50000` for internal
-errors; `42900` marks rate limiting). `GET
+`40100` for unauthorized, `40300` for forbidden, `40400` for not found, and
+`50000` for internal errors; `42900` marks rate limiting). `GET
 /healthz` is the deliberate exception: it returns a minimal `{status,time}` body
 for infrastructure probes.

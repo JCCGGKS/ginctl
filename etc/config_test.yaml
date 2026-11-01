@@ -10,6 +10,16 @@ auth:
   refreshExpireSeconds: 604800
   loginRatePerMinute: 20
 
+cors:
+  allowOrigins:
+    - "http://localhost:3000"
+    - "http://127.0.0.1:3000"
+  allowMethods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+  allowHeaders: ["Authorization", "Content-Type", "X-Request-Id"] # 认证、JSON、请求追踪头
+  exposeHeaders: ["X-Request-Id"] # 允许前端读取的响应头
+  allowCredentials: false
+  maxAgeSeconds: 600
+
 log:
   rootDir: logs
   level: info

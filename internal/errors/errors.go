@@ -12,6 +12,7 @@ import (
 const (
 	CodeBadRequest       = 40000
 	CodeUnauthorized     = 40100
+	CodeForbidden        = 40300
 	CodeNotFound         = 40400
 	CodeMethodNotAllowed = 40500
 	CodeTimeout          = 40800
@@ -49,6 +50,10 @@ func BadRequest(msg string) error {
 
 func Unauthorized(msg string) error {
 	return NewAppError(http.StatusUnauthorized, CodeUnauthorized, msg)
+}
+
+func Forbidden(msg string) error {
+	return NewAppError(http.StatusForbidden, CodeForbidden, msg)
 }
 
 func NotFound(msg string) error {

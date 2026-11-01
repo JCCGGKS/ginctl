@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	headerRequestID    = "X-Request-Id"
+	headerRequestID    = "X-Request-Id" // 请求 ID：用于串联 access/app/gorm 日志；客户端可传入，服务端会校验格式
 	maxRequestIDLength = 64
 )
 
@@ -28,7 +28,7 @@ func RequestID() gin.HandlerFunc {
 		common.SetRequestID(c, id)
 		ctx := logger.WithRequestID(c.Request.Context(), id)
 		c.Request = c.Request.WithContext(ctx)
-		c.Header(headerRequestID, id)
+		c.Header(headerRequestID, id) // 回写请求 ID，便于客户端和服务端日志关联
 		c.Next()
 	}
 }

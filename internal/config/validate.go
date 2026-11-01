@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -24,6 +25,11 @@ func (c Config) Validate() error {
 		{"auth.accessExpireSeconds", positive(c.Auth.AccessExpireSeconds)},
 		{"auth.refreshExpireSeconds", positive(c.Auth.RefreshExpireSeconds)},
 		{"auth.loginRatePerMinute", inRange(c.Auth.LoginRatePerMinute, 1, 10000)},
+		{"cors.allowOrigins", validateOrigins(c.CORS.AllowOrigins, c.CORS.AllowCredentials)},
+		{"cors.allowMethods", validateHTTPTokens(c.CORS.AllowMethods)},
+		{"cors.allowHeaders", validateHTTPTokens(c.CORS.AllowHeaders)},
+		{"cors.exposeHeaders", validateHTTPTokens(c.CORS.ExposeHeaders)},
+		{"cors.maxAgeSeconds", inRange(c.CORS.MaxAgeSeconds, 0, 86400)},
 		{"mysql.host", required(c.MySQL.Host)},
 		{"mysql.port", inRange(c.MySQL.Port, 1, 65535)},
 		{"mysql.user", required(c.MySQL.User)},
@@ -148,4 +154,74 @@ func logRotation(dailyRotate bool, maxSizeMB, maxAgeDays int, compress bool) err
 		return nil
 	}
 	return errors.New("must be positive when daily rotation is disabled and retention or compression is enabled")
+}
+
+func validateOrigins(origins []string, allowCredentials bool) error {
+	var errs []error
+	wildcard := false
+	for index, raw := range origins {
+		origin := strings.TrimSpace(raw)
+		if origin == "" {
+			errs = append(errs, fmt.Errorf("item %d is empty", index))
+			continue
+		}
+		if origin == "*" {
+			wildcard = true
+			continue
+		}
+		if strings.ContainsAny(origin, " \t\r\n") {
+			errs = append(errs, fmt.Errorf("item %d contains whitespace", index))
+			continue
+		}
+
+		parsed, err := url.Parse(origin)
+		if err != nil || parsed.User != nil {
+			errs = append(errs, fmt.Errorf("item %d is not a valid origin", index))
+			continue
+		}
+		scheme := strings.ToLower(parsed.Scheme)
+		if scheme != "http" && scheme != "https" {
+			errs = append(errs, fmt.Errorf("item %d must use http or https", index))
+			continue
+		}
+		if parsed.Host == "" || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+			errs = append(errs, fmt.Errorf("item %d must contain only scheme and host", index))
+		}
+	}
+	if wildcard && allowCredentials {
+		errs = append(errs, errors.New("wildcard origin cannot be used with credentials"))
+	}
+	return errors.Join(errs...)
+}
+
+func validateHTTPTokens(values []string) error {
+	var errs []error
+	for index, raw := range values {
+		value := strings.TrimSpace(raw)
+		if value == "*" {
+			errs = append(errs, fmt.Errorf("item %d: wildcard is only supported in cors.allowOrigins", index))
+			continue
+		}
+		if value == "" || !isHTTPToken(value) {
+			errs = append(errs, fmt.Errorf("item %d is not a valid HTTP token", index))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func isHTTPToken(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		if (ch >= 'a' && ch <= 'z') ||
+			(ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') ||
+			strings.ContainsRune("!#$%&'*+-.^_`|~", rune(ch)) {
+			continue
+		}
+		return false
+	}
+	return true
 }

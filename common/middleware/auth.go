@@ -40,6 +40,7 @@ func Auth(tm *common.JWTManager, unauthorized ErrorBuilder, noAuth NoAuthRoutes)
 			return
 		}
 
+		// Authorization：客户端携带的认证凭据，格式为 "Bearer <JWT>"。
 		raw := common.ExtractBearer(c.GetHeader("Authorization"))
 		if raw == "" {
 			common.Fail(c, unauthorized("authorization JWT is required"))

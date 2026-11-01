@@ -23,6 +23,7 @@ func NewAuthHandler(auth *business.AuthService) *AuthHandler {
 
 // Login follows the standard flow: bind -> business -> unified response.
 func (h *AuthHandler) Login(c *gin.Context) {
+	// Content-Type：请求体媒体类型；登录接口只接受 JSON，避免表单/文本解析歧义。
 	if c.ContentType() != "application/json" {
 		common.Fail(c, apperrors.BadRequest("content type must be application/json"))
 		return
@@ -45,6 +46,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 // Refresh exchanges a refresh token for a new access token.
 func (h *AuthHandler) Refresh(c *gin.Context) {
+	// Content-Type：请求体媒体类型；刷新接口只接受 JSON。
 	if c.ContentType() != "application/json" {
 		common.Fail(c, apperrors.BadRequest("content type must be application/json"))
 		return

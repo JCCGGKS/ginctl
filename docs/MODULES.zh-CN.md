@@ -9,7 +9,7 @@
 - 项目是一个 Gin 服务骨架，启动时依赖可用的 MySQL；Redis 是可选依赖，连接失败只会记录 warning，不阻断启动。
 - 分层主线清晰：`handler -> business -> dao`，`middleware` 负责横切能力，`svc` 负责依赖装配，`common` 放可复用的通用公共能力。
 - 启动流程包含配置加载、配置校验、日志初始化、依赖装配、路由构建、HTTP 服务和优雅关闭。
-- 已有能力：JWT 登录、Refresh Token 换取 Access Token、鉴权、统一响应、错误码、访问日志、请求 ID、panic 恢复、三模块日志、可配置的按天切割、日志压缩和保留清理、MySQL 连接池、可选 Redis 连接池、启动 ping 和关闭逻辑、请求体/请求头限制、安全响应头、登录/刷新限流和 JWT issuer/audience/token_use 校验。
+- 已有能力：JWT 登录、Refresh Token 换取 Access Token、鉴权、统一响应、错误码、访问日志、请求 ID、panic 恢复、三模块日志、可配置的按天切割、日志压缩和保留清理、MySQL 连接池、可选 Redis 连接池、启动 ping 和关闭逻辑、请求体/请求头限制、安全响应头、CORS 来源白名单、登录/刷新限流和 JWT issuer/audience/token_use 校验。
 - 当前仍是骨架而非完整生产实现：用户表需要手动迁移，JWT 仍是单机无状态校验，Refresh Token 不落库、不轮换，也没有主动撤销、黑名单和登出。
 - 日志已按 `app`、`gorm`、`access` 拆分，并通过 `request_id` 串联；业务内部日志统一写入 `app`，GORM 查询通过 `db.WithContext(ctx)` 写入 `gorm`，HTTP 请求和 Gin 输出写入 `access`。
 
@@ -31,7 +31,7 @@
 │   └── schema/                HTTP 请求/响应 DTO
 ├── common/                     公共包：跨服务共享的通用能力与表模型
 │   ├── logger/                分模块 zap 日志、按天/固定文件、GORM 适配、request_id context
-│   ├── middleware/            请求 ID、安全头、请求体限制、鉴权、访问日志、恢复、限流
+│   ├── middleware/            请求 ID、安全头、CORS、请求体限制、鉴权、访问日志、恢复、限流
 │   ├── model/                 存储侧模型
 │   ├── response.go            统一响应 envelope 与写响应逻辑
 │   └── jwt.go                 JWT 签发和校验
@@ -45,7 +45,7 @@
 | 配置 | `internal/config/config.go` | 配置结构、默认值、Viper 加载、启动前校验 |
 | 依赖装配 | `internal/svc/service_context.go` | 构造 JWT manager、DAO/Cache Registry 等共享依赖 |
 | 路由 | `internal/router/router.go` | Gin 引擎、中间件顺序、公开/受保护路由、404/405 |
-| 中间件 | `common/middleware/*.go` | 请求 ID、安全响应头、请求体限制、访问日志、panic 恢复、JWT 鉴权、限流 |
+| 中间件 | `common/middleware/*.go` | 请求 ID、安全响应头、CORS、请求体限制、访问日志、panic 恢复、JWT 鉴权、限流 |
 | 处理器 | `internal/handler/*.go` | 绑定 HTTP 输入、调用业务、输出统一响应 |
 | 业务 | `internal/business/*.go` | 登录/刷新编排、凭证校验、错误语义、业务日志 |
 | DAO | `internal/dao/**` | 定义持久化接口并提供 MySQL/GORM 实现 |
@@ -136,6 +136,7 @@ CLI 只保留 `-f`，默认值为 `etc/config_dev.yaml`。环境由配置文件�
 |---|---|---|
 | `server` | env、host、port | `env` 取 dev/test/prod 并映射 Gin mode；host/port 为 HTTP 监听地址；HTTP 读头/读/写/空闲超时和最大请求头固定为安全默认值 |
 | `auth` | jwtSecret、accessExpireSeconds、refreshExpireSeconds、loginRatePerMinute | JWT 签发、Access/Refresh 有效期和单实例每 IP 登录/刷新限流 |
+| `cors` | allowOrigins、allowMethods、allowHeaders、exposeHeaders、allowCredentials、maxAgeSeconds | 浏览器跨域来源白名单、预检方法/请求头校验和凭据策略；allowOrigins 为空时关闭 CORS |
 | `log` | rootDir、level、format、dailyRotate、timezone、maxSizeMB、maxAgeDays、compress | 日志根目录、级别、编码、按天开关、切日时区、大小分片、保留和压缩 |
 | `mysql` | 连接、库名、连接池、超时 | 建立 GORM 连接、启动 ping、连接池和优雅关闭 |
 | `redis` | 地址、密码、DB、连接池、超时 | 尝试建立 go-redis 客户端、启动 ping、连接池和优雅关闭；失败不阻断启动 |
@@ -149,6 +150,7 @@ CLI 只保留 `-f`，默认值为 `etc/config_dev.yaml`。环境由配置文件�
 - Gin mode 由 `server.env` 自动映射，不再单独配置；prod 固定映射为 `release`。
 - JWT secret 必填；prod 长度至少 32 字节。
 - Access/Refresh TTL 都必须为正数；`loginRatePerMinute` 为正数，且登录/刷新限流上限为 10000 次/分钟。
+- CORS origin 必须是 `http`/`https` 的 scheme + host，不能带路径、查询串或用户信息；`allowCredentials=true` 时禁止 `*`；方法名和请求头名必须是合法 HTTP token；`maxAgeSeconds` 范围为 0-86400。
 - MySQL host/port/user/database/charset 必填且格式合法；prod 必须提供非空密码；连接池必须为正数或合法非负值，`maxIdleConns` 不能超过 `maxOpenConns`。
 - Redis host/port 必填；prod 必须提供非空密码；DB 不能为负数；连接池和各类超时必须为正数，`minIdleConns` 不能超过 `poolSize`。
 - 日志级别只能是 `debug/info/warn/error`，格式只能是 `console/json`；rootDir 和 timezone 不能为空，timezone 必须可加载；maxSizeMB 和 maxAgeDays 不能为负数；`dailyRotate=false` 且启用保留或压缩时，maxSizeMB 必须大于 `0`。
@@ -203,7 +205,7 @@ type ServiceContext struct {
 当前注册顺序：
 
 ```text
-RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中间件 -> handler
+RequestID -> SecurityHeaders -> AccessLog -> CORS -> BodyLimit -> Recovery -> 路由中间件 -> handler
 ```
 
 顺序含义：
@@ -211,6 +213,7 @@ RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中�
 - `RequestID` 最先执行，后续日志和响应都能拿到请求 ID。
 - `SecurityHeaders` 在响应写出前设置安全头。
 - `AccessLog` 包住后续链路，请求结束后记录最终状态和耗时。
+- `CORS` 在业务鉴权前处理跨域来源和预检请求，未匹配来源返回 403。
 - `BodyLimit` 在 handler 解码前限制请求体大小。
 - `Recovery` 位于访问日志内部，panic 被转换成 500 后，访问日志仍能记录 500。
 
@@ -241,6 +244,7 @@ RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中�
 |---|---|---|---|
 | `RequestID` | `requestid.go` | 只接受长度 ≤64 且字符安全的 `X-Request-Id`，否则生成 16 字节随机 hex；写入 Gin context、request context 和响应头 | 随机源失败时退化为时间戳 ID |
 | `SecurityHeaders` | `security.go` | 设置 `nosniff`、frame denial、no-referrer、deny-all CSP 和 `Cache-Control: no-store` | 无 |
+| `CORS` | `cors.go` | 精确来源白名单、同源放行、OPTIONS 预检方法和请求头校验；禁止未配置的跨域来源 | `40300` |
 | `BodyLimit` | `bodylimit.go` | 用 `http.MaxBytesReader` 把请求体限制为 1 MiB | 解码失败按 400 处理 |
 | `AccessLog` | `accesslog.go` | 请求结束后记录 method/path/status/latency/client_ip/user_id | 写 `access` 模块日志 |
 | `Recovery` | `recovery.go` | recover panic，记录 app error 并返回统一 500 | `50000` |
@@ -250,6 +254,8 @@ RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中�
 ### 关键行为
 
 - `AccessLog` 自动从 request context 获取 `request_id`；鉴权成功时补充 `user_id`。
+- `SecurityHeaders` 是零依赖的纵深防御基线：`nosniff` 阻止 MIME 嗅探，`X-Frame-Options` 与 CSP `frame-ancestors` 防点击劫持，`no-referrer` 防来源泄露，`default-src 'none'` 限制资源加载，`no-store` 避免敏感 API 响应被缓存。它不能替代鉴权、输入校验、CORS 或限流，但成本极低，建议保留。
+- `CORS` 默认关闭；配置来源后只对白名单 Origin 返回 `Access-Control-Allow-Origin`，不会反射任意来源。预检请求会校验 `Access-Control-Request-Method` 和 `Access-Control-Request-Headers`，同时输出 `Vary: Origin` 等头，避免缓存污染。`allowCredentials=true` 时禁止通配符来源。
 - `Auth` 只接受 HS256，并要求 secret 已配置；JWT 还必须匹配固定 issuer/audience、包含过期时间、携带非空 `uid`/`username`，且 `token_use=access`。
 - 登录和刷新限流都是进程内固定窗口，单实例有效；多实例部署需要网关或 Redis 共享限流。
 
@@ -257,6 +263,7 @@ RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> 路由中�
 
 - `ClientIP` 使用直连地址，部署在反向代理后需要重新评估真实 IP 获取方式。
 - `X-Request-Id` 已限制长度和字符集；非法值会被服务端 ID 替换，避免日志注入。
+- CORS 只约束浏览器跨域读取，不等同于身份认证或 CSRF 防护；如果使用 Cookie，还需要 CSRF 防护和 `SameSite` 策略。
 - 在反向代理后，`ClientIP` 可能是代理地址，按 IP 的登录/刷新限流会退化为共享额度；需要配置可信代理或改用共享限流。
 - JWT 是无状态校验；Refresh Token 可以换取 Access Token，但没有服务端撤销、轮换、黑名单和登出语义。
 - `Recovery` 会先记录一次 `panic recovered`，随后 `common.Fail` 还会记录一次 5xx 的 `request failed`，同一 panic 可能产生两条 app error 日志。
@@ -499,6 +506,7 @@ type UserDAO interface {
 | `0` | 成功 |
 | `40000` | 请求参数错误 |
 | `40100` | 未认证 |
+| `40300` | 禁止访问 |
 | `40400` | 资源不存在 |
 | `40500` | 方法不允许 |
 | `40800` | 超时/请求取消 |
@@ -534,6 +542,7 @@ POST /api/v1/login
   RequestID
   -> SecurityHeaders
   -> AccessLog
+  -> CORS
   -> BodyLimit
   -> Recovery
   -> RateLimit（按 ClientIP）
@@ -555,7 +564,7 @@ POST /api/v1/login
 
 ```text
 POST /api/v1/auth/refresh
-  RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery
+  RequestID -> SecurityHeaders -> AccessLog -> CORS -> BodyLimit -> Recovery
   -> RateLimit（按 ClientIP，独立于登录计数器）
   -> middleware.Auth 放行（noAuthRoutes 精确匹配）
   -> handler.Refresh
@@ -575,7 +584,7 @@ POST /api/v1/auth/refresh
 
 ```text
 GET /api/v1/me
-  RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery
+  RequestID -> SecurityHeaders -> AccessLog -> CORS -> BodyLimit -> Recovery
   -> middleware.Auth
        -> ExtractBearer
        -> JWTManager.Parse
@@ -589,7 +598,7 @@ GET /api/v1/me
 ### 13.4 404 / 405
 
 ```text
-RequestID -> SecurityHeaders -> AccessLog -> BodyLimit -> Recovery -> NoRoute / NoMethod
+RequestID -> SecurityHeaders -> AccessLog -> CORS -> BodyLimit -> Recovery -> NoRoute / NoMethod
   -> common.Fail
   -> AccessLog
 ```
@@ -646,7 +655,7 @@ gorm.log   request_id=abc123 gorm query elapsed=2ms rows_affected=1 sql=...
 2. **配置是否符合部署方式**：环境变量名、prod secret、真实客户端 IP 策略、日志目录和超时。
 3. **分层依赖是否越界**：handler 是否只做适配，business 是否直接操作 HTTP，`common` 是否反向依赖 `internal/*`。
 4. **认证与错误语义是否安全**：账号枚举、JWT 校验、401 文案、未知错误是否泄露内部信息。
-5. **中间件顺序是否正确**：RequestID、SecurityHeaders、AccessLog、BodyLimit、Recovery、限流和鉴权的作用范围。
+5. **中间件顺序是否正确**：RequestID、SecurityHeaders、AccessLog、CORS、BodyLimit、Recovery、限流和鉴权的作用范围。
 6. **日志是否能串联请求**：请求 ID 是否贯穿 access、app、gorm，敏感信息是否被排除。
 7. **生产缺口是否明确**：迁移流程、Redis 高可用、JWT 生命周期、日志保留和监控。
 8. **扩展点是否清晰**：新增路由、业务、DAO、依赖和日志模块时是否只需改局部装配。

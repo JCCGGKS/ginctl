@@ -17,6 +17,15 @@ auth:
   refreshExpireSeconds: 604800       # refresh token 有效期，单位秒；默认 7 天
   loginRatePerMinute: 20             # 单实例内每个客户端 IP 每分钟允许的登录请求数；多实例部署仍需网关限流
 
+cors:
+  allowOrigins:                      # 精确匹配浏览器 Origin；留空表示关闭 CORS
+    - "https://app.example.com"
+  allowMethods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] # 允许跨域实际请求使用方法
+  allowHeaders: ["Authorization", "Content-Type", "X-Request-Id"] # 预检允许携带的请求头：认证、JSON、请求追踪
+  exposeHeaders: ["X-Request-Id"] # 允许前端 JavaScript 读取的响应头
+  allowCredentials: false            # true 时必须使用精确 Origin，禁止 "*"
+  maxAgeSeconds: 600                 # 预检结果缓存时间，范围 0-86400 秒
+
 log:
   rootDir: "logs"                    # 日志根目录；相对路径基于进程工作目录。按天切割时为 <rootDir>/<YYYY-MM>/<YYYY-MM-DD>_<module>.log
   level: "info"                      # 全局最低日志级别：debug|info|warn|error，作用于 app/gorm/access 三个模块

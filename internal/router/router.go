@@ -38,12 +38,22 @@ func New(svcCtx *svc.ServiceContext) *gin.Engine {
 	// Never trust X-Forwarded-*; ClientIP uses the remote socket address.
 	_ = engine.SetTrustedProxies(nil)
 
-	// Global middleware: request id -> security headers -> access log ->
+	corsConfig := middleware.CORSConfig{
+		AllowOrigins:     svcCtx.Config.CORS.AllowOrigins,
+		AllowMethods:     svcCtx.Config.CORS.AllowMethods,
+		AllowHeaders:     svcCtx.Config.CORS.AllowHeaders,
+		ExposeHeaders:    svcCtx.Config.CORS.ExposeHeaders,
+		AllowCredentials: svcCtx.Config.CORS.AllowCredentials,
+		MaxAge:           time.Duration(svcCtx.Config.CORS.MaxAgeSeconds) * time.Second,
+	}
+
+	// Global middleware: request id -> security headers -> access log -> CORS ->
 	// body limit -> panic guard. Recovery is last so it wraps the handlers.
 	engine.Use(
 		middleware.RequestID(),
 		middleware.SecurityHeaders(),
 		middleware.AccessLog(),
+		middleware.CORS(corsConfig, apperrors.Forbidden),
 		middleware.BodyLimit(maxRequestBodyBytes),
 		middleware.Recovery(apperrors.Internal),
 	)
